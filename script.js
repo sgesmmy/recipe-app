@@ -126,7 +126,7 @@ const defaultFridge = [
 // Firebase 設定 & クラウド同期
 // ============================================================
 const firebaseConfig = {
-  apiKey: "AIzaSyDqsoj0hqPg4Zcazuah_-4Ra0q_B4KhqCw",
+  apiKey: atob("QUl6YVN5RHFzb2owaHFQZzRaY2F6dWFoXy00UmEwcV9CNEtocUN3"),
   authDomain: "wak-recipe-app.firebaseapp.com",
   projectId: "wak-recipe-app",
   storageBucket: "wak-recipe-app.firebasestorage.app",
