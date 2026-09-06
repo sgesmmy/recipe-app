@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>レシピ管理アプリ</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div class="app-container">
+    
+    <!-- メイン画面 -->
+    <div id="main-view" class="view active">
+      <header class="filter-header">
+        <button id="open-filter-btn" class="filter-open-btn">🔍 絞り込み</button>
+        <div class="filter-summary" id="filter-summary"></div>
+      </header>
+      <div class="search-mode-tabs">
+        <button class="tab active" data-tab="single">単品けんさく</button>
+        <button class="tab" data-tab="kondate">こんだてけんさく</button>
+      </div>
+      <main class="recipe-list" id="recipe-list"></main>
+      <div id="kondate-results"></div>
+      <footer class="bottom-nav">
+        <button id="open-fridge-btn" class="nav-btn fridge-btn">
+          <span class="icon">🧊</span><span>冷蔵庫</span>
+        </button>
+        <button id="open-calendar-btn" class="nav-btn calendar-btn">
+          <span class="icon">📅</span><span>カレンダー</span>
+        </button>
+        <button id="open-add-btn" class="nav-btn add-btn">
+          <span class="icon">＋</span>
+        </button>
+      </footer>
+    </div>
+
+    <!-- レシピ詳細画面 -->
+    <div id="detail-view" class="view">
+      <header class="detail-header">
+        <button id="detail-back-btn" class="back-btn">← </button>
+        <h2 id="detail-title">レシピ名</h2>
+      </header>
+      <main class="detail-body" id="detail-body"></main>
+      <div class="detail-actions">
+        <button id="detail-edit-btn" class="detail-edit-btn">✏️ 編集</button>
+        <button id="detail-delete-btn" class="detail-delete-btn">🗑 削除</button>
+        <button id="detail-cooked-btn" class="detail-cooked-btn">🍳 作った！</button>
+      </div>
+    </div>
+
+    <!-- レシピ登録・編集画面 -->
+    <div id="add-view" class="view">
+      <header class="form-header">
+        <button id="cancel-add-btn" class="text-btn">キャンセル</button>
+        <h2 id="add-view-title">レシピ登録</h2>
+        <button id="save-recipe-btn" class="text-btn primary-text">保存</button>
+      </header>
+      <main class="form-body">
+        <div class="form-top-row">
+          <div class="photo-upload-box" id="recipe-photo-box" title="タップして写真を追加・編集">
+            <span id="photo-box-label">📷 写真</span>
+            <img id="photo-preview-img" src="" alt="プレビュー" style="display:none;">
+          </div>
+          <input type="file" id="recipe-photo-input" accept="image/*" style="display:none;">
+          <div class="title-input-box">
+            <label for="recipe-name">レシピ名</label>
+            <input type="text" id="recipe-name" placeholder="料理名を入力">
+            <div class="servings-row">
+              <label for="recipe-servings">基準人数</label>
+              <div class="servings-input-wrap">
+                <input type="number" id="recipe-servings" value="1" min="1" class="servings-input">
+                <span class="servings-unit">人前</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <div class="section-header-row">
+            <h3>特徴・タグ</h3>
+            <button type="button" id="open-feature-modal-btn" class="sub-btn">編集</button>
+          </div>
+          <div id="feature-summary-tags" class="tag-cloud"></div>
+        </div>
+
+        <div class="form-section">
+          <h3>材料</h3>
+          <div id="ingredient-container"></div>
+          <div class="action-btn-row">
+            <button type="button" id="add-ingredient-btn" class="add-line-btn">＋ 単体材料</button>
+            <button type="button" id="open-group-modal-btn" class="add-line-btn group-btn">＋ グループ（合わせ調味料）</button>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h3>作り方ステップ</h3>
+          <div id="step-container">
+            <div class="step-card" draggable="true">
+              <span class="drag-handle">☰</span>
+              <span class="step-num">1</span>
+              <textarea placeholder="手順を入力" rows="2" class="step-desc"></textarea>
+              <button type="button" class="del-step-btn">×</button>
+            </div>
+          </div>
+          <button type="button" id="add-step-btn" class="add-line-btn">＋ 手順を追加</button>
+        </div>
+      </main>
+    </div>
+
+    <!-- 冷蔵庫編集画面 -->
+    <div id="fridge-view" class="view">
+      <header class="form-header">
+        <button id="close-fridge-btn" class="text-btn">閉じる</button>
+        <h2>🧊 冷蔵庫の中身</h2>
+        <button id="save-fridge-btn" class="text-btn primary-text">保存</button>
+      </header>
+      <main class="form-body">
+        <div class="form-section">
+          <p style="font-size:12px; color:#64748b; margin-bottom:4px;">食材と分量を入力してください。同じ名前＋単位は自動で合算されます。</p>
+          <div id="fridge-list"></div>
+          <button type="button" id="add-fridge-item-btn" class="add-line-btn">＋ 食材を追加</button>
+        </div>
+      </main>
+    </div>
+
+    <!-- カレンダー画面 -->
+    <div id="calendar-view" class="view">
+      <header class="form-header">
+        <button id="close-calendar-btn" class="text-btn">閉じる</button>
+        <h2>📅 調理カレンダー</h2>
+        <div style="width: 44px;"></div>
+      </header>
+      <main class="form-body calendar-body">
+        <!-- 「最近作ったもの」設定エリア（折りたたみアコーディオン） -->
+        <details class="calendar-settings-card">
+          <summary class="cal-setting-summary">
+            <span>⚙️ 「最近作ったもの」の判定設定</span>
+            <span class="cal-setting-arrow">▼</span>
+          </summary>
+          <div class="cal-setting-content">
+            <div class="cal-setting-row">
+              <label for="recent-days-select">対象期間:</label>
+              <select id="recent-days-select" class="cal-select">
+                <option value="1">直近1日以内</option>
+                <option value="3">直近3日以内</option>
+                <option value="5">直近5日以内</option>
+                <option value="7" selected>直近1週間 (7日)</option>
+                <option value="10">直近10日以内</option>
+                <option value="14">直近2週間 (14日)</option>
+                <option value="21">直近3週間 (21日)</option>
+                <option value="30">直近1ヶ月 (30日)</option>
+              </select>
+            </div>
+            <div class="cal-setting-row">
+              <label>検索での扱い:</label>
+              <div class="cal-radio-group">
+                <label class="radio-item"><input type="radio" name="recent-mode" value="lower_priority" checked> 優先順位を下げる</label>
+                <label class="radio-item"><input type="radio" name="recent-mode" value="exclude"> 検索から除外する</label>
+                <label class="radio-item"><input type="radio" name="recent-mode" value="tag_only"> タグ表示のみ</label>
+              </div>
+            </div>
+            <p class="cal-setting-hint">※メインおかず・ごはん系・めん系のみ対象（サブ・汁物は除外されません）</p>
+          </div>
+        </details>
+
+        <!-- 月間カレンダー部 -->
+        <div class="calendar-month-nav">
+          <button type="button" id="cal-prev-month-btn" class="cal-nav-btn">&lt;</button>
+          <span id="cal-month-title" class="cal-month-title">2026年 9月</span>
+          <button type="button" id="cal-next-month-btn" class="cal-nav-btn">&gt;</button>
+        </div>
+        <div class="calendar-table">
+          <div class="cal-weekdays">
+            <span class="sun">日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span class="sat">土</span>
+          </div>
+          <div id="cal-days-grid" class="cal-days-grid"></div>
+        </div>
+
+        <!-- 選択日の記録エリア -->
+        <div class="cal-day-detail-section">
+          <div class="cal-day-detail-header">
+            <h3 id="cal-selected-date-label">日付を選択してください</h3>
+            <button type="button" id="cal-open-add-btn" class="sub-btn">＋ 記録を追加</button>
+          </div>
+          <div id="cal-day-history-list" class="cal-day-history-list"></div>
+        </div>
+      </main>
+    </div>
+
+    <!-- ===== 特徴編集モーダル ===== -->
+    <div id="feature-modal" class="modal-overlay">
+      <div class="modal-content">
+        <h3>特徴・タグの設定</h3>
+        <label>めんどくさ度:
+          <select id="modal-difficulty">
+            <option value="1">★1（爆速・簡単）</option>
+            <option value="2">★2（普通）</option>
+            <option value="3">★3（少し手間）</option>
+            <option value="4">★4（しっかり調理）</option>
+            <option value="5">★5（気合が必要）</option>
+          </select>
+        </label>
+        <label>味の系統:
+          <select id="modal-taste">
+            <option value="あっさり">あっさり</option>
+            <option value="こってり">こってり</option>
+            <option value="旨辛">旨辛</option>
+            <option value="甘め">甘め</option>
+            <option value="酸味・さっぱり">酸味・さっぱり</option>
+          </select>
+        </label>
+        <label>ジャンル:
+          <select id="modal-genre">
+            <option value="和風">和風</option>
+            <option value="洋風">洋風</option>
+            <option value="中華">中華</option>
+            <option value="エスニック">エスニック</option>
+            <option value="その他">その他</option>
+          </select>
+        </label>
+        <label>タイプ:
+          <select id="modal-meal-type">
+            <option value="メインおかず">メインおかず</option>
+            <option value="サブおかず">サブおかず</option>
+            <option value="ごはん系">ごはん系</option>
+            <option value="めん系">めん系</option>
+            <option value="スープ/汁物">スープ/汁物</option>
+          </select>
+        </label>
+        <label>所要時間（目安）:
+          <div class="time-input-wrap">
+            <input type="number" id="modal-time" placeholder="15" min="1" class="time-input">
+            <span class="time-unit">分</span>
+          </div>
+        </label>
+        <label>自由タグ:
+          <input type="text" id="modal-free-tags" placeholder="例: 作り置き, お弁当">
+        </label>
+        <div class="modal-actions">
+          <button type="button" id="save-feature-modal-btn" class="primary-btn">完了</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== グループ編集モーダル ===== -->
+    <div id="group-modal" class="modal-overlay">
+      <div class="modal-content">
+        <h3 id="group-modal-title">材料グループの作成</h3>
+        <label>グループ名:
+          <input type="text" id="group-modal-name" placeholder="例: みそだれ、合わせ調味料A">
+        </label>
+        <div class="form-section">
+          <h4>中身の材料</h4>
+          <div id="group-modal-items"></div>
+          <button type="button" id="group-modal-add-item-btn" class="add-line-btn">＋ 材料を追加</button>
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="cancel-group-modal-btn" class="sub-btn">キャンセル</button>
+          <button type="button" id="save-group-modal-btn" class="primary-btn">グループ確定</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 「今日作った」モーダル ===== -->
+    <div id="cooked-modal" class="modal-overlay">
+      <div class="modal-content">
+        <h3>🍳 今日作った！</h3>
+        <label>作った量:
+          <div class="cooked-servings-row">
+            <input type="number" id="cooked-servings" value="1" min="1" class="servings-input">
+            <span>人前（レシピ基準: <span id="cooked-base-servings">1</span>人前）</span>
+          </div>
+        </label>
+        <div class="filter-section" style="margin-bottom:0;">
+          <h4>冷蔵庫の材料</h4>
+          <div class="radio-group">
+            <label class="radio-item"><input type="radio" name="cooked-deduct" value="auto" checked> 自動で引く</label>
+            <label class="radio-item"><input type="radio" name="cooked-deduct" value="manual"> 手動で管理（引かない）</label>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="cancel-cooked-btn" class="sub-btn">キャンセル</button>
+          <button type="button" id="confirm-cooked-btn" class="primary-btn">記録する</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 控除確認モーダル ===== -->
+    <div id="deduct-confirm-modal" class="modal-overlay">
+      <div class="modal-content">
+        <h3>冷蔵庫からの控除確認</h3>
+        <p style="font-size:11px; color:#64748b;">以下の分量が冷蔵庫から引かれます。<br>問題があれば戻って「手動で管理」に切り替えてください。</p>
+        <div id="deduct-list" class="deduct-list"></div>
+        <div class="modal-actions">
+          <button type="button" id="cancel-deduct-btn" class="sub-btn">キャンセル</button>
+          <button type="button" id="confirm-deduct-btn" class="primary-btn">OK</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 絞り込みモーダル（単品検索用） ===== -->
+    <div id="single-filter-modal" class="modal-overlay filter-modal-overlay">
+      <div class="filter-modal-panel">
+        <div class="filter-modal-header">
+          <button type="button" id="close-single-filter-btn" class="filter-modal-close">✕</button>
+          <h3>絞り込み条件</h3>
+          <button type="button" id="reset-single-filter-btn" class="filter-modal-reset">リセット</button>
+        </div>
+        <div class="filter-modal-body">
+          <div class="filter-section"><h4>めんどくさ度</h4><p class="filter-hint">選んだ★以下で絞り込み</p><div class="chip-group" id="sf-difficulty-chips"><button class="chip" data-value="1">★1</button><button class="chip" data-value="2">★2</button><button class="chip" data-value="3">★3</button><button class="chip" data-value="4">★4</button><button class="chip" data-value="5">★5</button></div></div>
+          <div class="filter-section"><h4>味の系統<span class="filter-multi-label">複数選択可</span></h4><div class="chip-group" id="sf-taste-chips"><button class="chip" data-value="あっさり">あっさり</button><button class="chip" data-value="こってり">こってり</button><button class="chip" data-value="旨辛">旨辛</button><button class="chip" data-value="甘め">甘め</button><button class="chip" data-value="酸味・さっぱり">酸味・さっぱり</button></div></div>
+          <div class="filter-section"><h4>ジャンル<span class="filter-multi-label">複数選択可</span></h4><div class="chip-group" id="sf-genre-chips"><button class="chip" data-value="和風">和風</button><button class="chip" data-value="洋風">洋風</button><button class="chip" data-value="中華">中華</button><button class="chip" data-value="エスニック">エスニック</button><button class="chip" data-value="その他">その他</button></div></div>
+          <div class="filter-section"><h4>タイプ<span class="filter-multi-label">複数選択可</span></h4><div class="chip-group" id="sf-type-chips"><button class="chip" data-value="メインおかず">メインおかず</button><button class="chip" data-value="サブおかず">サブおかず</button><button class="chip" data-value="ごはん系">ごはん系</button><button class="chip" data-value="めん系">めん系</button><button class="chip" data-value="スープ/汁物">スープ/汁物</button></div></div>
+          <div class="filter-section"><h4>並べ替え</h4><div class="radio-group"><label class="radio-item"><input type="radio" name="sf-sort" value="missing" checked> 不足食材が少ない順</label><label class="radio-item"><input type="radio" name="sf-sort" value="difficulty"> めんどくさ度が低い順</label></div></div>
+        </div>
+        <div class="filter-modal-footer"><button type="button" id="apply-single-filter-btn" class="primary-btn filter-apply-btn">この条件で検索</button></div>
+      </div>
+    </div>
+
+    <!-- ===== 絞り込みモーダル（献立検索用） ===== -->
+    <div id="kondate-filter-modal" class="modal-overlay filter-modal-overlay">
+      <div class="filter-modal-panel">
+        <div class="filter-modal-header">
+          <button type="button" id="close-kondate-filter-btn" class="filter-modal-close">✕</button>
+          <h3>献立の絞り込み</h3>
+          <button type="button" id="reset-kondate-filter-btn" class="filter-modal-reset">リセット</button>
+        </div>
+        <div class="filter-modal-body">
+          <div class="filter-section"><h4>ジャンル<span class="filter-multi-label">複数選択可</span></h4><div class="chip-group" id="kf-genre-chips"><button class="chip" data-value="和風">和風</button><button class="chip" data-value="洋風">洋風</button><button class="chip" data-value="中華">中華</button><button class="chip" data-value="エスニック">エスニック</button><button class="chip" data-value="その他">その他</button></div></div>
+          <div class="filter-section"><h4>組み合わせタイプ</h4><div class="radio-group"><label class="radio-item"><input type="radio" name="kf-combo" value="main+side" checked> メインおかず＋サブおかず</label><label class="radio-item"><input type="radio" name="kf-combo" value="staple+side-or-soup"> ごはん系/めん系＋サブ or スープ</label></div></div>
+          <div class="filter-section"><h4>メインの味</h4><div class="chip-group" id="kf-main-taste-chips"><button class="chip" data-value="あっさり">あっさり</button><button class="chip" data-value="こってり">こってり</button></div></div>
+          <div class="filter-section" id="kf-taste-pairing-section" style="display:none;"><h4>サブおかずの味合わせ</h4><div class="radio-group"><label class="radio-item"><input type="radio" name="kf-taste-pair" value="opposite" checked> 対照的にする（逆の味）</label><label class="radio-item"><input type="radio" name="kf-taste-pair" value="same"> 統一する（同じ味）</label><label class="radio-item"><input type="radio" name="kf-taste-pair" value="any"> 指定なし</label></div></div>
+          <div class="filter-section"><h4>並べ替え</h4><div class="radio-group"><label class="radio-item"><input type="radio" name="kf-sort" value="missing" checked> 追加食材が少ない順</label><label class="radio-item"><input type="radio" name="kf-sort" value="difficulty"> めんどくさ度が低い順</label></div></div>
+        </div>
+        <div class="filter-modal-footer"><button type="button" id="apply-kondate-filter-btn" class="primary-btn filter-apply-btn">この条件で検索</button></div>
+      </div>
+    </div>
+
+    <!-- ===== カレンダー手動追加モーダル ===== -->
+    <div id="calendar-add-modal" class="modal-overlay">
+      <div class="modal-content">
+        <h3>📅 作ったメニューを記録</h3>
+        <label>日付:
+          <input type="date" id="cal-add-date">
+        </label>
+        <label>登録レシピから選択:
+          <select id="cal-add-recipe-select">
+            <option value="">-- レシピを選択 --</option>
+          </select>
+        </label>
+        <label>または自由入力:
+          <input type="text" id="cal-add-custom-name" placeholder="例: カレーライス、昨日の残り物">
+        </label>
+        <label>作った量:
+          <div class="servings-input-wrap">
+            <input type="number" id="cal-add-servings" value="1" min="1" class="servings-input">
+            <span class="servings-unit">人前</span>
+          </div>
+        </label>
+        <div class="modal-actions">
+          <button type="button" id="cancel-cal-add-btn" class="sub-btn">キャンセル</button>
+          <button type="button" id="save-cal-add-btn" class="primary-btn">記録する</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 写真トリミングモーダル ===== -->
+    <div id="photo-crop-modal" class="modal-overlay">
+      <div class="modal-content photo-crop-modal-content">
+        <h3>📷 写真の位置調整</h3>
+        <p class="crop-hint">ドラッグ・スワイプで位置移動、スライダーで拡大縮小</p>
+        <div class="crop-viewport" id="crop-viewport">
+          <img id="crop-preview-img" src="" alt="クロップ対象" draggable="false">
+          <div class="crop-frame-overlay"></div>
+        </div>
+        <div class="crop-controls">
+          <span class="crop-zoom-label">🔍 ズーム</span>
+          <input type="range" id="crop-zoom-slider" min="1" max="3" step="0.05" value="1">
+        </div>
+        <div class="modal-actions crop-actions">
+          <button type="button" id="delete-crop-btn" class="sub-btn del-btn-danger" style="display:none; margin-right:auto;">写真を削除</button>
+          <button type="button" id="cancel-crop-btn" class="sub-btn">キャンセル</button>
+          <button type="button" id="save-crop-btn" class="primary-btn">決定</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== オートコンプリートドロップダウン（グローバル） ===== -->
+    <div id="autocomplete-dropdown" class="ac-dropdown"></div>
+    <div id="ac-warning" class="ac-warning"></div>
+
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
