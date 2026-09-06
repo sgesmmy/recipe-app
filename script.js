@@ -122,6 +122,40 @@ const defaultFridge = [
   { name: "もやし", qty: 1, unit: "袋" }
 ];
 
+// ============================================================
+// Firebase 設定 & クラウド同期
+// ============================================================
+const firebaseConfig = {
+  apiKey: "AIzaSyDqsoj0hqPg4Zcazuah_-4Ra0q_B4KhqCw",
+  authDomain: "wak-recipe-app.firebaseapp.com",
+  projectId: "wak-recipe-app",
+  storageBucket: "wak-recipe-app.firebasestorage.app",
+  messagingSenderId: "408600777170",
+  appId: "1:408600777170:web:6aa1db9250dc718ed8380b"
+};
+
+let db = null;
+let currentGroupId = localStorage.getItem('sync_group_id') || '';
+let isSyncActive = false;
+let isRemoteUpdating = false;
+let unsubscribeRecipes = null;
+let unsubscribeFridge = null;
+let unsubscribeHistory = null;
+let unsubscribeSettings = null;
+
+function initFirebase() {
+  try {
+    if (typeof firebase !== 'undefined' && !firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+      db = firebase.firestore();
+    } else if (typeof firebase !== 'undefined') {
+      db = firebase.firestore();
+    }
+  } catch (err) {
+    console.error("Firebase init failed:", err);
+  }
+}
+
 // --- 状態管理 ---
 let recipes = JSON.parse(localStorage.getItem('my_recipes')) || defaultRecipes;
 let myFridge = JSON.parse(localStorage.getItem('my_fridge')) || defaultFridge;
@@ -927,13 +961,19 @@ saveRecipeBtn.addEventListener('click', () => {
   if (!fd.name) { alert('レシピ名を入力してください'); return; }
   const allIng = [...fd.singleIngredients.map(i => ({ ...i, group: null }))];
   fd.groups.forEach(g => g.items.forEach(it => allIng.push({ ...it, group: g.name })));
+  let savedRecipe = null;
   if (editingRecipeId !== null) {
     const idx = recipes.findIndex(r => r.id === editingRecipeId);
-    if (idx !== -1) recipes[idx] = { ...recipes[idx], name: fd.name, servings: fd.servings, features: fd.features, ingredients: allIng, groups: fd.groups, steps: fd.steps, photo: fd.photo, rawPhoto: fd.rawPhoto };
+    if (idx !== -1) {
+      recipes[idx] = { ...recipes[idx], name: fd.name, servings: fd.servings, features: fd.features, ingredients: allIng, groups: fd.groups, steps: fd.steps, photo: fd.photo, rawPhoto: fd.rawPhoto };
+      savedRecipe = recipes[idx];
+    }
   } else {
-    recipes.push({ id: Date.now(), name: fd.name, servings: fd.servings, features: fd.features, ingredients: allIng, groups: fd.groups, steps: fd.steps, photo: fd.photo, rawPhoto: fd.rawPhoto });
+    savedRecipe = { id: Date.now(), name: fd.name, servings: fd.servings, features: fd.features, ingredients: allIng, groups: fd.groups, steps: fd.steps, photo: fd.photo, rawPhoto: fd.rawPhoto };
+    recipes.push(savedRecipe);
   }
   localStorage.setItem('my_recipes', JSON.stringify(recipes));
+  if (savedRecipe) cloudSaveRecipe(savedRecipe);
   localStorage.removeItem('recipe_draft');
   resetForm(); renderRecipes(); switchView(mainView);
 });
@@ -1159,8 +1199,10 @@ document.getElementById('detail-edit-btn').addEventListener('click', () => { con
 document.getElementById('detail-delete-btn').addEventListener('click', () => {
   const r = recipes.find(r => r.id === currentDetailRecipeId);
   if (!r || !confirm(`「${r.name}」を削除しますか？`)) return;
-  recipes = recipes.filter(r => r.id !== currentDetailRecipeId);
+  const deletedId = currentDetailRecipeId;
+  recipes = recipes.filter(r => r.id !== deletedId);
   localStorage.setItem('my_recipes', JSON.stringify(recipes));
+  cloudDeleteRecipe(deletedId);
   renderRecipes(); switchView(mainView);
 });
 
@@ -1242,6 +1284,7 @@ document.getElementById('confirm-deduct-btn').addEventListener('click', () => {
     }
   });
   localStorage.setItem('my_fridge', JSON.stringify(myFridge));
+  cloudSaveFridge();
 
   recordCooking(recipe, servingsMade);
   renderRecipes();
@@ -1257,6 +1300,7 @@ function recordCooking(recipe, servingsMade) {
     servings: servingsMade
   });
   localStorage.setItem('cooking_history', JSON.stringify(cookingHistory));
+  cloudSaveCookingHistory();
 }
 
 // ============================================================
@@ -1397,6 +1441,7 @@ function handleCookedKondateSet(set) {
   });
 
   localStorage.setItem('my_fridge', JSON.stringify(myFridge));
+  cloudSaveFridge();
   renderRecipes();
   generateKondateSuggestions();
   alert(`「${names}」をカレンダーに記録しました！`);
@@ -1446,6 +1491,7 @@ document.getElementById('save-fridge-btn').addEventListener('click', () => {
   // ダブり合算
   myFridge = mergeFridgeItems(items);
   localStorage.setItem('my_fridge', JSON.stringify(myFridge));
+  cloudSaveFridge();
   renderRecipes();
   if (currentTab === 'kondate') generateKondateSuggestions();
   switchView(mainView);
@@ -1590,6 +1636,7 @@ closeCalendarBtn.addEventListener('click', () => {
 recentDaysSelect.addEventListener('change', (e) => {
   recentSettings.days = parseInt(e.target.value, 10);
   localStorage.setItem('recent_settings', JSON.stringify(recentSettings));
+  cloudSaveRecentSettings();
   renderRecipes();
   if (currentTab === 'kondate') generateKondateSuggestions();
 });
@@ -1598,6 +1645,7 @@ document.querySelectorAll('input[name="recent-mode"]').forEach(radio => {
   radio.addEventListener('change', (e) => {
     recentSettings.mode = e.target.value;
     localStorage.setItem('recent_settings', JSON.stringify(recentSettings));
+    cloudSaveRecentSettings();
     renderRecipes();
     if (currentTab === 'kondate') generateKondateSuggestions();
   });
@@ -1728,6 +1776,7 @@ function renderDayHistory() {
       if (originalIdx !== -1) {
         cookingHistory.splice(originalIdx, 1);
         localStorage.setItem('cooking_history', JSON.stringify(cookingHistory));
+        cloudSaveCookingHistory();
         renderCalendar();
         renderDayHistory();
         renderRecipes();
@@ -1782,6 +1831,7 @@ saveCalAddBtn.addEventListener('click', () => {
   });
 
   localStorage.setItem('cooking_history', JSON.stringify(cookingHistory));
+  cloudSaveCookingHistory();
   calendarAddModal.classList.remove('active');
 
   selectedCalDateStr = dateVal;
@@ -1792,8 +1842,401 @@ saveCalAddBtn.addEventListener('click', () => {
 });
 
 // ============================================================
+// クラウド同期 & バックアップ実装
+// ============================================================
+function showSyncIndicator(isSyncing) {
+  const dot = document.getElementById('sync-status-dot');
+  if (!dot) return;
+  if (isSyncing) {
+    dot.className = 'sync-status-dot syncing';
+  } else if (isSyncActive && currentGroupId) {
+    dot.className = 'sync-status-dot connected';
+  } else {
+    dot.className = 'sync-status-dot';
+  }
+}
+
+function updateSyncUI() {
+  const dot = document.getElementById('sync-status-dot');
+  const badge = document.getElementById('sync-status-badge');
+  const icon = document.getElementById('sync-status-icon');
+  const text = document.getElementById('sync-status-text');
+  const input = document.getElementById('sync-group-id');
+  const startBtn = document.getElementById('start-sync-btn');
+  const stopBtn = document.getElementById('stop-sync-btn');
+
+  if (isSyncActive && currentGroupId) {
+    if (dot) dot.className = 'sync-status-dot connected';
+    if (badge) badge.className = 'sync-status-badge connected';
+    if (icon) icon.textContent = '🟢';
+    if (text) text.textContent = `同期中:「${currentGroupId}」`;
+    if (input) input.value = currentGroupId;
+    if (startBtn) startBtn.textContent = '合言葉を変更する';
+    if (stopBtn) stopBtn.style.display = 'inline-block';
+  } else {
+    if (dot) dot.className = 'sync-status-dot';
+    if (badge) badge.className = 'sync-status-badge';
+    if (icon) icon.textContent = '⚪';
+    if (text) text.textContent = '未接続（この端末のみで利用中）';
+    if (input && !input.value) input.value = '';
+    if (startBtn) startBtn.textContent = '同期を開始する';
+    if (stopBtn) stopBtn.style.display = 'none';
+  }
+}
+
+async function cloudSaveRecipe(recipe) {
+  if (!isSyncActive || !db || !currentGroupId || isRemoteUpdating) return;
+  try {
+    showSyncIndicator(true);
+    await db.collection('groups').doc(currentGroupId)
+      .collection('recipes').doc(String(recipe.id)).set(recipe);
+  } catch (err) {
+    console.error("cloudSaveRecipe error:", err);
+  } finally {
+    showSyncIndicator(false);
+  }
+}
+
+async function cloudDeleteRecipe(recipeId) {
+  if (!isSyncActive || !db || !currentGroupId || isRemoteUpdating) return;
+  try {
+    showSyncIndicator(true);
+    await db.collection('groups').doc(currentGroupId)
+      .collection('recipes').doc(String(recipeId)).delete();
+  } catch (err) {
+    console.error("cloudDeleteRecipe error:", err);
+  } finally {
+    showSyncIndicator(false);
+  }
+}
+
+async function cloudSaveFridge() {
+  if (!isSyncActive || !db || !currentGroupId || isRemoteUpdating) return;
+  try {
+    showSyncIndicator(true);
+    await db.collection('groups').doc(currentGroupId)
+      .collection('data').doc('fridge').set({ items: myFridge });
+  } catch (err) {
+    console.error("cloudSaveFridge error:", err);
+  } finally {
+    showSyncIndicator(false);
+  }
+}
+
+async function cloudSaveCookingHistory() {
+  if (!isSyncActive || !db || !currentGroupId || isRemoteUpdating) return;
+  try {
+    showSyncIndicator(true);
+    await db.collection('groups').doc(currentGroupId)
+      .collection('data').doc('history').set({ list: cookingHistory });
+  } catch (err) {
+    console.error("cloudSaveCookingHistory error:", err);
+  } finally {
+    showSyncIndicator(false);
+  }
+}
+
+async function cloudSaveRecentSettings() {
+  if (!isSyncActive || !db || !currentGroupId || isRemoteUpdating) return;
+  try {
+    showSyncIndicator(true);
+    await db.collection('groups').doc(currentGroupId)
+      .collection('data').doc('settings').set({ data: recentSettings });
+  } catch (err) {
+    console.error("cloudSaveRecentSettings error:", err);
+  } finally {
+    showSyncIndicator(false);
+  }
+}
+
+async function uploadAllToCloud(groupId) {
+  if (!db || !groupId) return;
+  showSyncIndicator(true);
+  try {
+    const groupRef = db.collection('groups').doc(groupId);
+    const batch = db.batch();
+    recipes.forEach(r => {
+      const docRef = groupRef.collection('recipes').doc(String(r.id));
+      batch.set(docRef, r);
+    });
+    batch.set(groupRef.collection('data').doc('fridge'), { items: myFridge });
+    batch.set(groupRef.collection('data').doc('history'), { list: cookingHistory });
+    batch.set(groupRef.collection('data').doc('settings'), { data: recentSettings });
+    await batch.commit();
+  } catch (err) {
+    console.error("uploadAllToCloud error:", err);
+    throw err;
+  } finally {
+    showSyncIndicator(false);
+  }
+}
+
+function teardownCloudSync() {
+  if (unsubscribeRecipes) { unsubscribeRecipes(); unsubscribeRecipes = null; }
+  if (unsubscribeFridge) { unsubscribeFridge(); unsubscribeFridge = null; }
+  if (unsubscribeHistory) { unsubscribeHistory(); unsubscribeHistory = null; }
+  if (unsubscribeSettings) { unsubscribeSettings(); unsubscribeSettings = null; }
+  isSyncActive = false;
+  showSyncIndicator(false);
+}
+
+function setupCloudSync(groupId) {
+  if (!db || !groupId) return;
+  teardownCloudSync();
+
+  isSyncActive = true;
+  currentGroupId = groupId;
+  localStorage.setItem('sync_group_id', groupId);
+  updateSyncUI();
+
+  const groupRef = db.collection('groups').doc(groupId);
+
+  // 1. レシピのリスナー
+  unsubscribeRecipes = groupRef.collection('recipes').onSnapshot((snapshot) => {
+    if (snapshot.empty && recipes.length > 0) return;
+    isRemoteUpdating = true;
+    const remote = [];
+    snapshot.forEach(doc => remote.push(doc.data()));
+    if (remote.length > 0) {
+      remote.sort((a, b) => (a.id || 0) - (b.id || 0));
+      recipes = remote;
+      localStorage.setItem('my_recipes', JSON.stringify(recipes));
+      renderRecipes();
+      if (currentDetailRecipeId) {
+        const cur = recipes.find(r => r.id === currentDetailRecipeId);
+        if (cur) renderDetail(cur);
+      }
+    }
+    isRemoteUpdating = false;
+  }, (err) => {
+    console.error("Firestore recipes listener error:", err);
+  });
+
+  // 2. 冷蔵庫のリスナー
+  unsubscribeFridge = groupRef.collection('data').doc('fridge').onSnapshot((doc) => {
+    if (doc.exists && doc.data() && Array.isArray(doc.data().items)) {
+      isRemoteUpdating = true;
+      myFridge = doc.data().items;
+      localStorage.setItem('my_fridge', JSON.stringify(myFridge));
+      renderRecipes();
+      renderFridgeList();
+      isRemoteUpdating = false;
+    }
+  }, (err) => {
+    console.error("Firestore fridge listener error:", err);
+  });
+
+  // 3. 調理履歴のリスナー
+  unsubscribeHistory = groupRef.collection('data').doc('history').onSnapshot((doc) => {
+    if (doc.exists && doc.data() && Array.isArray(doc.data().list)) {
+      isRemoteUpdating = true;
+      cookingHistory = doc.data().list;
+      localStorage.setItem('cooking_history', JSON.stringify(cookingHistory));
+      renderCalendar();
+      renderDayHistory();
+      renderRecipes();
+      if (currentTab === 'kondate') generateKondateSuggestions();
+      isRemoteUpdating = false;
+    }
+  }, (err) => {
+    console.error("Firestore history listener error:", err);
+  });
+
+  // 4. 設定のリスナー
+  unsubscribeSettings = groupRef.collection('data').doc('settings').onSnapshot((doc) => {
+    if (doc.exists && doc.data() && doc.data().data) {
+      isRemoteUpdating = true;
+      recentSettings = doc.data().data;
+      localStorage.setItem('recent_settings', JSON.stringify(recentSettings));
+      initRecentSettingsUI();
+      renderRecipes();
+      isRemoteUpdating = false;
+    }
+  }, (err) => {
+    console.error("Firestore settings listener error:", err);
+  });
+}
+
+async function startSyncFlow(rawGroupId) {
+  const groupId = rawGroupId.trim();
+  if (!groupId) {
+    alert('合言葉（英数字やひらがな）を入力してください');
+    return;
+  }
+  if (!db) {
+    initFirebase();
+    if (!db) {
+      alert('Firebaseに接続できませんでした。ネットワーク環境をご確認ください。');
+      return;
+    }
+  }
+
+  showSyncIndicator(true);
+  try {
+    const groupRef = db.collection('groups').doc(groupId);
+    const snap = await groupRef.collection('recipes').limit(1).get();
+
+    if (snap.empty) {
+      const ok = confirm(`合言葉「${groupId}」のクラウドスペースはまだデータがありません。\n\n現在この端末にあるレシピや冷蔵庫のデータをアップロードして共有スペースを作成しますか？`);
+      if (ok) {
+        await uploadAllToCloud(groupId);
+      }
+    } else {
+      const ok = confirm(`合言葉「${groupId}」のクラウドデータが見つかりました。\n\nクラウドのデータをこの端末に読み込んで同期を開始しますか？`);
+      if (!ok) {
+        showSyncIndicator(false);
+        return;
+      }
+    }
+
+    setupCloudSync(groupId);
+    alert(`合言葉「${groupId}」で同期を開始しました！\n別の端末でも同じ合言葉を入力すれば、自動でリアルタイムに同じレシピを見ることができます。`);
+    document.getElementById('sync-modal').classList.remove('active');
+  } catch (err) {
+    console.error("startSyncFlow error:", err);
+    alert('同期の開始に失敗しました。\n' + err.message);
+  } finally {
+    showSyncIndicator(false);
+  }
+}
+
+function stopSyncFlow() {
+  if (!confirm('クラウド同期を解除しますか？\n（解除しても、この端末内のレシピデータはそのまま残ります）')) return;
+  teardownCloudSync();
+  localStorage.removeItem('sync_group_id');
+  currentGroupId = '';
+  updateSyncUI();
+  alert('クラウド同期を解除しました。この端末のみの利用に戻りました。');
+}
+
+// バックアップ出力（エクスポート）
+function exportBackupData() {
+  const data = {
+    version: 1,
+    exportDate: new Date().toISOString(),
+    recipes: recipes,
+    fridge: myFridge,
+    cookingHistory: cookingHistory,
+    recentSettings: recentSettings
+  };
+  const jsonStr = JSON.stringify(data, null, 2);
+  const blob = new Blob([jsonStr], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const d = new Date();
+  const dateStr = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+  a.href = url;
+  a.download = `recipe_backup_${dateStr}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// バックアップ復元（インポート）
+function importBackupData(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data || !Array.isArray(data.recipes)) {
+        alert('無効なファイルです。レシピデータが見つかりませんでした。');
+        return;
+      }
+      if (!confirm(`バックアップファイルを復元します。\nレシピ数: ${data.recipes.length}件\n現在のデータは上書きされますがよろしいですか？`)) {
+        return;
+      }
+      recipes = data.recipes;
+      if (Array.isArray(data.fridge)) myFridge = data.fridge;
+      if (Array.isArray(data.cookingHistory)) cookingHistory = data.cookingHistory;
+      if (data.recentSettings) recentSettings = data.recentSettings;
+
+      localStorage.setItem('my_recipes', JSON.stringify(recipes));
+      localStorage.setItem('my_fridge', JSON.stringify(myFridge));
+      localStorage.setItem('cooking_history', JSON.stringify(cookingHistory));
+      localStorage.setItem('recent_settings', JSON.stringify(recentSettings));
+
+      if (isSyncActive && db && currentGroupId) {
+        await uploadAllToCloud(currentGroupId);
+      }
+
+      renderRecipes();
+      renderFridgeList();
+      renderCalendar();
+      initRecentSettingsUI();
+      alert('バックアップからの復元が完了しました！');
+      document.getElementById('sync-modal').classList.remove('active');
+    } catch (err) {
+      console.error("importBackupData error:", err);
+      alert('ファイルの復元に失敗しました: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+// モーダルイベントリスナー登録
+const syncModal = document.getElementById('sync-modal');
+const openSyncBtn = document.getElementById('open-sync-btn');
+const closeSyncModalBtn = document.getElementById('close-sync-modal-btn');
+const startSyncBtn = document.getElementById('start-sync-btn');
+const stopSyncBtn = document.getElementById('stop-sync-btn');
+const exportBackupBtn = document.getElementById('export-backup-btn');
+const importBackupBtn = document.getElementById('import-backup-btn');
+const backupFileInput = document.getElementById('backup-file-input');
+
+if (openSyncBtn) {
+  openSyncBtn.addEventListener('click', () => {
+    updateSyncUI();
+    syncModal.classList.add('active');
+  });
+}
+if (closeSyncModalBtn) {
+  closeSyncModalBtn.addEventListener('click', () => {
+    syncModal.classList.remove('active');
+  });
+}
+if (syncModal) {
+  syncModal.addEventListener('click', (e) => {
+    if (e.target === syncModal) syncModal.classList.remove('active');
+  });
+}
+if (startSyncBtn) {
+  startSyncBtn.addEventListener('click', () => {
+    const gid = document.getElementById('sync-group-id').value;
+    startSyncFlow(gid);
+  });
+}
+if (stopSyncBtn) {
+  stopSyncBtn.addEventListener('click', stopSyncFlow);
+}
+if (exportBackupBtn) {
+  exportBackupBtn.addEventListener('click', exportBackupData);
+}
+if (importBackupBtn) {
+  importBackupBtn.addEventListener('click', () => {
+    backupFileInput.value = '';
+    backupFileInput.click();
+  });
+}
+if (backupFileInput) {
+  backupFileInput.addEventListener('change', (e) => {
+    if (e.target.files && e.target.files[0]) {
+      importBackupData(e.target.files[0]);
+    }
+  });
+}
+
+// ============================================================
 // 初期実行
 // ============================================================
+initFirebase();
+if (currentGroupId) {
+  setupCloudSync(currentGroupId);
+} else {
+  updateSyncUI();
+}
+
 renderFeatureSummary();
 renderFilterSummary();
 renderRecipes();

@@ -15,6 +15,10 @@
       <header class="filter-header">
         <button id="open-filter-btn" class="filter-open-btn">🔍 絞り込み</button>
         <div class="filter-summary" id="filter-summary"></div>
+        <button id="open-sync-btn" class="sync-open-btn" title="クラウド同期・バックアップ">
+          <span class="sync-icon">☁️</span>
+          <span class="sync-status-dot" id="sync-status-dot"></span>
+        </button>
       </header>
       <div class="search-mode-tabs">
         <button class="tab active" data-tab="single">単品けんさく</button>
@@ -386,12 +390,61 @@
       </div>
     </div>
 
+    <!-- ===== クラウド同期・バックアップモーダル ===== -->
+    <div id="sync-modal" class="modal-overlay">
+      <div class="modal-content sync-modal-content">
+        <div class="modal-header-row">
+          <h3>☁️ クラウド同期・バックアップ</h3>
+          <button type="button" id="close-sync-modal-btn" class="close-icon-btn">×</button>
+        </div>
+        
+        <!-- セクション1: 家族・マルチデバイス同期 -->
+        <div class="sync-section">
+          <h4>👥 家族・端末間の自動同期</h4>
+          <p class="sync-desc">合言葉（共有コード）を決めると、同じ合言葉を入れたスマホやPC同士でレシピ・冷蔵庫がリアルタイムに自動同期されます。</p>
+          
+          <div class="sync-status-badge" id="sync-status-badge">
+            <span class="status-indicator-icon" id="sync-status-icon">⚪</span>
+            <span id="sync-status-text">未接続（この端末のみで利用中）</span>
+          </div>
+
+          <div class="sync-input-group">
+            <label for="sync-group-id">合言葉（英数字やひらがな）:</label>
+            <input type="text" id="sync-group-id" placeholder="例: tanaka-kitchen" maxlength="40">
+          </div>
+
+          <div class="sync-btn-row">
+            <button type="button" id="start-sync-btn" class="primary-btn">同期を開始する</button>
+            <button type="button" id="stop-sync-btn" class="sub-btn del-btn-danger" style="display: none;">同期を解除</button>
+          </div>
+          <p class="sync-note" id="sync-note">※ 初めて合言葉を設定して同期すると、この端末のデータがクラウドに保存され、別の端末からも見られるようになります。</p>
+        </div>
+
+        <hr class="sync-divider">
+
+        <!-- セクション2: ファイルバックアップ・復元 -->
+        <div class="sync-section">
+          <h4>💾 データのバックアップ・復元</h4>
+          <p class="sync-desc">端末にレシピデータ（写真含む）を丸ごとファイル（JSON）として保存・復元できます。データのバックアップや控えに安心です。</p>
+          
+          <div class="backup-btn-row">
+            <button type="button" id="export-backup-btn" class="sub-btn backup-btn">📥 ファイルに保存（バックアップ）</button>
+            <button type="button" id="import-backup-btn" class="sub-btn backup-btn">📤 ファイルから復元</button>
+            <input type="file" id="backup-file-input" accept=".json" style="display:none;">
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ===== オートコンプリートドロップダウン（グローバル） ===== -->
     <div id="autocomplete-dropdown" class="ac-dropdown"></div>
     <div id="ac-warning" class="ac-warning"></div>
 
   </div>
 
+  <!-- Firebase Compat SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
   <script src="script.js"></script>
 </body>
 </html>
