@@ -1796,74 +1796,78 @@ details[open] .cal-setting-arrow {
 }
 
 /* ===== ページネーション ===== */
-.recipe-pagination {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 12px 6px;
-  background-color: #fff;
+#recipe-pagination.recipe-pagination {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: 2px !important;
+  padding: 4px 8px 2px !important;
+  margin: 0 !important;
+  background-color: #fff !important;
+  border-top: 1px solid #f1f5f9 !important;
+  flex-shrink: 0 !important;
 }
 
-.pagination-controls {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  flex-wrap: nowrap;
-  max-width: 100%;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
+#recipe-pagination .pagination-controls {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  flex-wrap: nowrap !important;
+  max-width: 100% !important;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch !important;
 }
 
-.page-btn {
-  min-width: 28px;
-  height: 28px;
-  padding: 0 6px;
-  border-radius: 6px;
-  border: 1px solid #e2e8f0;
-  background-color: #ffffff;
-  color: #334155;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.15s ease;
-  user-select: none;
-  flex-shrink: 0;
+#recipe-pagination .page-btn {
+  min-width: 26px !important;
+  height: 26px !important;
+  padding: 0 5px !important;
+  border-radius: 5px !important;
+  border: 1px solid #e2e8f0 !important;
+  background-color: #ffffff !important;
+  color: #334155 !important;
+  font-size: 11.5px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: all 0.15s ease !important;
+  user-select: none !important;
+  flex-shrink: 0 !important;
 }
 
-.page-btn:hover:not(:disabled):not(.active) {
-  background-color: #f8fafc;
-  border-color: #cbd5e1;
+#recipe-pagination .page-btn:hover:not(:disabled):not(.active) {
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
 }
 
-.page-btn.active {
-  background-color: #f97316;
-  border-color: #f97316;
-  color: #ffffff;
-  font-weight: bold;
-  box-shadow: 0 1px 3px rgba(249, 115, 22, 0.25);
+#recipe-pagination .page-btn.active {
+  background-color: #f97316 !important;
+  border-color: #f97316 !important;
+  color: #ffffff !important;
+  font-weight: bold !important;
+  box-shadow: 0 1px 3px rgba(249, 115, 22, 0.25) !important;
 }
 
-.page-btn:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-  background-color: #f1f5f9;
+#recipe-pagination .page-btn:disabled {
+  opacity: 0.35 !important;
+  cursor: not-allowed !important;
+  background-color: #f1f5f9 !important;
 }
 
-.page-nav-btn {
-  font-size: 11px;
-  padding: 0 8px;
-  height: 28px;
+#recipe-pagination .page-nav-btn {
+  font-size: 10.5px !important;
+  padding: 0 6px !important;
+  height: 26px !important;
 }
 
-.page-info {
-  font-size: 11px;
-  color: #64748b;
-  margin-top: 1px;
+#recipe-pagination .page-info {
+  font-size: 10.5px !important;
+  color: #64748b !important;
+  margin: 0 !important;
+  line-height: 1.2 !important;
 }
 
 /* ===== 献立カスタム品目選択 ===== */

@@ -1409,6 +1409,14 @@ function renderPaginationUI(container, current, totalPages, totalItems, onPageCh
   html += `<div class="page-info">${current} / ${totalPages} ページ (全 ${totalItems} 件)</div>`;
 
   container.innerHTML = html;
+  container.style.padding = '4px 8px 2px';
+  container.style.gap = '2px';
+  container.style.margin = '0';
+  container.style.display = 'flex';
+  container.style.flexDirection = 'column';
+  container.style.alignItems = 'center';
+  container.style.backgroundColor = '#fff';
+  container.style.borderTop = '1px solid #f1f5f9';
 
   container.querySelectorAll('.page-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
