@@ -546,10 +546,51 @@ saveCropBtn.addEventListener('click', () => {
     0, 0, targetSize, targetSize
   );
 
-  const croppedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+  const croppedDataUrl = canvas.toDataURL('image/jpeg', 0.75);
   setRecipePhotoPreview(croppedDataUrl, cropPreviewImg.src);
   photoCropModal.classList.remove('active');
 });
+
+// 画像自動圧縮ユーティリティ（長辺をmaxDimensionに縮小しJPEG圧縮）
+function compressImage(fileOrDataUrl, maxDimension = 800, quality = 0.75) {
+  return new Promise((resolve, reject) => {
+    const processImg = (src) => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        let w = img.width;
+        let h = img.height;
+        if (w > maxDimension || h > maxDimension) {
+          if (w > h) {
+            h = Math.round((h * maxDimension) / w);
+            w = maxDimension;
+          } else {
+            w = Math.round((w * maxDimension) / h);
+            h = maxDimension;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = src;
+    };
+
+    if (typeof fileOrDataUrl === 'string') {
+      processImg(fileOrDataUrl);
+    } else {
+      const reader = new FileReader();
+      reader.onerror = reject;
+      reader.onload = (ev) => processImg(ev.target.result);
+      reader.readAsDataURL(fileOrDataUrl);
+    }
+  });
+}
 
 // 写真枠クリック
 recipePhotoBox.addEventListener('click', () => {
@@ -565,16 +606,20 @@ recipePhotoBox.addEventListener('click', () => {
   }
 });
 
-recipePhotoInput.addEventListener('change', (e) => {
+recipePhotoInput.addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
 
-  const reader = new FileReader();
-  reader.onload = (ev) => {
-    openCropModal(ev.target.result, true);
+  try {
+    // 巨大な写真（数MB〜10MB）を即座に軽量化（長辺最大800px・50〜80KB程度に圧縮）
+    const compressedDataUrl = await compressImage(file, 800, 0.75);
+    openCropModal(compressedDataUrl, true);
+  } catch (err) {
+    console.error("Image compression error:", err);
+    alert('写真の読み込みに失敗しました');
+  } finally {
     recipePhotoInput.value = ''; // リセット
-  };
-  reader.readAsDataURL(file);
+  }
 });
 
 // ============================================================
@@ -837,14 +882,37 @@ openAddBtn.addEventListener('click', () => {
   switchView(addView);
 });
 cancelAddBtn.addEventListener('click', () => {
-  const fd = getFormData();
-  const has = fd.name || fd.singleIngredients.length > 0 || fd.groups.length > 0 || fd.steps.length > 0;
-  if (has && !editingRecipeId) {
-    if (confirm('編集中の内容を下書き保存しますか？\n\n【OK】: 一時保存して閉じる\n【キャンセル】: 入力内容を破棄して閉じる')) {
-      localStorage.setItem('recipe_draft', JSON.stringify(fd));
-    } else { localStorage.removeItem('recipe_draft'); resetForm(); }
-  } else { localStorage.removeItem('recipe_draft'); resetForm(); }
-  switchView(mainView);
+  try {
+    const fd = getFormData();
+    const has = fd.name || fd.singleIngredients.length > 0 || fd.groups.length > 0 || fd.steps.length > 0 || currentRecipePhoto;
+    if (has && !editingRecipeId) {
+      if (confirm('編集中の内容を下書き保存しますか？\n\n【OK】: 一時保存して閉じる\n【キャンセル】: 入力内容を破棄して閉じる')) {
+        try {
+          localStorage.setItem('recipe_draft', JSON.stringify(fd));
+        } catch (quotaErr) {
+          console.warn("Storage quota exceeded on draft save:", quotaErr);
+          // 容量オーバー時は写真を除外して保存を試みる
+          try {
+            fd.photo = null; fd.rawPhoto = null;
+            localStorage.setItem('recipe_draft', JSON.stringify(fd));
+          } catch (e2) {
+            localStorage.removeItem('recipe_draft');
+          }
+        }
+      } else {
+        localStorage.removeItem('recipe_draft');
+        resetForm();
+      }
+    } else {
+      localStorage.removeItem('recipe_draft');
+      resetForm();
+    }
+  } catch (err) {
+    console.error("Error in cancelAddBtn:", err);
+  } finally {
+    resetForm();
+    switchView(mainView);
+  }
 });
 
 // ============================================================
@@ -956,26 +1024,57 @@ addStepBtn.addEventListener('click', () => {
 // ============================================================
 // レシピ保存
 // ============================================================
-saveRecipeBtn.addEventListener('click', () => {
+saveRecipeBtn.addEventListener('click', async () => {
   const fd = getFormData();
   if (!fd.name) { alert('レシピ名を入力してください'); return; }
-  const allIng = [...fd.singleIngredients.map(i => ({ ...i, group: null }))];
-  fd.groups.forEach(g => g.items.forEach(it => allIng.push({ ...it, group: g.name })));
-  let savedRecipe = null;
-  if (editingRecipeId !== null) {
-    const idx = recipes.findIndex(r => r.id === editingRecipeId);
-    if (idx !== -1) {
-      recipes[idx] = { ...recipes[idx], name: fd.name, servings: fd.servings, features: fd.features, ingredients: allIng, groups: fd.groups, steps: fd.steps, photo: fd.photo, rawPhoto: fd.rawPhoto };
-      savedRecipe = recipes[idx];
+
+  // 連打防止
+  saveRecipeBtn.disabled = true;
+
+  try {
+    const allIng = [...fd.singleIngredients.map(i => ({ ...i, group: null }))];
+    fd.groups.forEach(g => g.items.forEach(it => allIng.push({ ...it, group: g.name })));
+    let savedRecipe = null;
+    if (editingRecipeId !== null) {
+      const idx = recipes.findIndex(r => r.id === editingRecipeId);
+      if (idx !== -1) {
+        recipes[idx] = { ...recipes[idx], name: fd.name, servings: fd.servings, features: fd.features, ingredients: allIng, groups: fd.groups, steps: fd.steps, photo: fd.photo, rawPhoto: fd.rawPhoto };
+        savedRecipe = recipes[idx];
+      }
+    } else {
+      savedRecipe = { id: Date.now(), name: fd.name, servings: fd.servings, features: fd.features, ingredients: allIng, groups: fd.groups, steps: fd.steps, photo: fd.photo, rawPhoto: fd.rawPhoto };
+      recipes.push(savedRecipe);
     }
-  } else {
-    savedRecipe = { id: Date.now(), name: fd.name, servings: fd.servings, features: fd.features, ingredients: allIng, groups: fd.groups, steps: fd.steps, photo: fd.photo, rawPhoto: fd.rawPhoto };
-    recipes.push(savedRecipe);
+
+    // 保存処理（容量オーバー時は自動で写真軽量化して再試行）
+    try {
+      localStorage.setItem('my_recipes', JSON.stringify(recipes));
+    } catch (quotaErr) {
+      console.warn("Storage quota exceeded. Optimizing photo sizes...", quotaErr);
+      // 全レシピのrawPhotoを削除して軽量化
+      recipes.forEach(r => {
+        if (r.photo) r.rawPhoto = r.photo;
+        else delete r.rawPhoto;
+      });
+      try {
+        localStorage.setItem('my_recipes', JSON.stringify(recipes));
+      } catch (retryErr) {
+        console.error("Critical storage error:", retryErr);
+        alert('端末の空き容量が上限に達しました。不要なレシピを削除するかバックアップを取ってください。');
+      }
+    }
+
+    if (savedRecipe) cloudSaveRecipe(savedRecipe);
+    try { localStorage.removeItem('recipe_draft'); } catch(e){}
+    resetForm();
+    renderRecipes();
+    switchView(mainView);
+  } catch (err) {
+    console.error("Error saving recipe:", err);
+    alert('保存中にエラーが発生しました: ' + err.message);
+  } finally {
+    saveRecipeBtn.disabled = false;
   }
-  localStorage.setItem('my_recipes', JSON.stringify(recipes));
-  if (savedRecipe) cloudSaveRecipe(savedRecipe);
-  localStorage.removeItem('recipe_draft');
-  resetForm(); renderRecipes(); switchView(mainView);
 });
 
 // ============================================================
@@ -2111,26 +2210,40 @@ function stopSyncFlow() {
 
 // バックアップ出力（エクスポート）
 function exportBackupData() {
-  const data = {
-    version: 1,
-    exportDate: new Date().toISOString(),
-    recipes: recipes,
-    fridge: myFridge,
-    cookingHistory: cookingHistory,
-    recentSettings: recentSettings
-  };
-  const jsonStr = JSON.stringify(data, null, 2);
-  const blob = new Blob([jsonStr], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  const d = new Date();
-  const dateStr = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
-  a.href = url;
-  a.download = `recipe_backup_${dateStr}.json`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  try {
+    // 出力前に巨大写真を整理
+    cleanupStorageData();
+
+    const data = {
+      version: 1,
+      exportDate: new Date().toISOString(),
+      recipes: recipes.map(r => ({
+        ...r,
+        // バックアップ時は生写真が巨大ならトリミング済み写真で代替してファイルサイズを小さく抑える
+        rawPhoto: (r.rawPhoto && r.rawPhoto.length > 150000) ? r.photo : r.rawPhoto
+      })),
+      fridge: myFridge,
+      cookingHistory: cookingHistory,
+      recentSettings: recentSettings
+    };
+    const jsonStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const d = new Date();
+    const dateStr = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+    a.href = url;
+    a.download = `recipe_backup_${dateStr}.json`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 100);
+  } catch (err) {
+    console.error("Export backup error:", err);
+    alert('バックアップの作成に失敗しました: ' + err.message);
+  }
 }
 
 // バックアップ復元（インポート）
@@ -2230,6 +2343,29 @@ if (backupFileInput) {
 // ============================================================
 // 初期実行
 // ============================================================
+function cleanupStorageData() {
+  try {
+    let modified = false;
+    recipes.forEach(r => {
+      if (r.rawPhoto && r.rawPhoto.length > 150000) {
+        r.rawPhoto = r.photo || null;
+        modified = true;
+      }
+    });
+    if (modified) {
+      localStorage.setItem('my_recipes', JSON.stringify(recipes));
+      console.log('Cleaned up oversized photos.');
+    }
+    const draft = localStorage.getItem('recipe_draft');
+    if (draft && draft.length > 200000) {
+      localStorage.removeItem('recipe_draft');
+    }
+  } catch (e) {
+    console.warn("Storage cleanup warning:", e);
+  }
+}
+
+cleanupStorageData();
 initFirebase();
 if (currentGroupId) {
   setupCloudSync(currentGroupId);
