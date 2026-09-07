@@ -156,6 +156,102 @@ function initFirebase() {
   }
 }
 
+// ============================================================
+// IndexedDB ユーティリティ（大容量ストレージ・ギガバイト対応）
+// ============================================================
+const DB_NAME = 'RecipeAppDB';
+const DB_VERSION = 1;
+let dbInstance = null;
+
+function openAppDB() {
+  if (dbInstance) return Promise.resolve(dbInstance);
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains('recipes')) {
+        d.createObjectStore('recipes', { keyPath: 'id' });
+      }
+      if (!d.objectStoreNames.contains('keyval')) {
+        d.createObjectStore('keyval', { keyPath: 'key' });
+      }
+    };
+    req.onsuccess = (e) => {
+      dbInstance = e.target.result;
+      resolve(dbInstance);
+    };
+    req.onerror = (e) => {
+      console.error("IndexedDB open error:", e);
+      reject(e);
+    };
+  });
+}
+
+async function idbSaveAllRecipes(recipeList) {
+  try {
+    const d = await openAppDB();
+    const tx = d.transaction('recipes', 'readwrite');
+    const store = tx.objectStore('recipes');
+    await new Promise((res, rej) => {
+      const clearReq = store.clear();
+      clearReq.onsuccess = res;
+      clearReq.onerror = rej;
+    });
+    recipeList.forEach(r => store.put(r));
+    await new Promise((res, rej) => {
+      tx.oncomplete = res;
+      tx.onerror = rej;
+    });
+  } catch (err) {
+    console.error("idbSaveAllRecipes error:", err);
+  }
+}
+
+async function idbLoadAllRecipes() {
+  try {
+    const d = await openAppDB();
+    const tx = d.transaction('recipes', 'readonly');
+    const store = tx.objectStore('recipes');
+    return new Promise((resolve, reject) => {
+      const req = store.getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = reject;
+    });
+  } catch (err) {
+    console.error("idbLoadAllRecipes error:", err);
+    return [];
+  }
+}
+
+async function idbSetVal(key, val) {
+  try {
+    const d = await openAppDB();
+    const tx = d.transaction('keyval', 'readwrite');
+    tx.objectStore('keyval').put({ key, val });
+    return new Promise((res, rej) => {
+      tx.oncomplete = res;
+      tx.onerror = rej;
+    });
+  } catch (err) {
+    console.error("idbSetVal error:", err);
+  }
+}
+
+async function idbGetVal(key) {
+  try {
+    const d = await openAppDB();
+    const tx = d.transaction('keyval', 'readonly');
+    const req = tx.objectStore('keyval').get(key);
+    return new Promise((resolve, reject) => {
+      req.onsuccess = () => resolve(req.result ? req.result.val : null);
+      req.onerror = reject;
+    });
+  } catch (err) {
+    console.error("idbGetVal error:", err);
+    return null;
+  }
+}
+
 // --- 状態管理 ---
 let recipes = JSON.parse(localStorage.getItem('my_recipes')) || defaultRecipes;
 let myFridge = JSON.parse(localStorage.getItem('my_fridge')) || defaultFridge;
@@ -179,8 +275,19 @@ let editingGroupIndex = null;
 let editingRecipeId = null;
 let currentTab = 'single';
 
+// ページネーション状態
+let currentPage = 1;
+const pageSize = 10;
+
 const singleFilter = { maxDifficulty: null, tastes: [], genres: [], mealTypes: [], sortBy: 'missing' };
-const kondateFilter = { genres: [], comboType: 'main+side', mainTaste: null, tastePairing: 'opposite', sortBy: 'missing' };
+const kondateFilter = {
+  genres: [],
+  comboType: 'main+side',
+  customTypes: ['メインおかず', 'スープ/汁物'],
+  mainTastes: [],
+  tastePairing: 'opposite',
+  sortBy: 'missing'
+};
 
 // --- マイグレーション ---
 (function migrate() {
@@ -240,6 +347,84 @@ const kondateFilter = { genres: [], comboType: 'main+side', mainTaste: null, tas
     localStorage.setItem('my_fridge', JSON.stringify(myFridge));
   }
 })();
+
+// ============================================================
+// IndexedDB 永続化ヘルパー（LocalStorageと二重管理で超安全）
+// ============================================================
+function persistRecipes() {
+  try {
+    localStorage.setItem('my_recipes', JSON.stringify(recipes));
+  } catch (e) {
+    console.warn("LocalStorage save quota reached, saved to IndexedDB.");
+  }
+  idbSaveAllRecipes(recipes);
+}
+
+function persistFridge() {
+  try {
+    localStorage.setItem('my_fridge', JSON.stringify(myFridge));
+  } catch (e) {
+    console.warn("LocalStorage fridge quota reached, saved to IndexedDB.");
+  }
+  idbSetVal('my_fridge', myFridge);
+}
+
+function persistCookingHistory() {
+  try {
+    localStorage.setItem('cooking_history', JSON.stringify(cookingHistory));
+  } catch (e) {
+    console.warn("LocalStorage history quota reached, saved to IndexedDB.");
+  }
+  idbSetVal('cooking_history', cookingHistory);
+}
+
+function persistRecentSettings() {
+  try {
+    localStorage.setItem('recent_settings', JSON.stringify(recentSettings));
+  } catch (e) {
+    console.warn("LocalStorage settings quota reached, saved to IndexedDB.");
+  }
+  idbSetVal('recent_settings', recentSettings);
+}
+
+async function initIndexedDBData() {
+  try {
+    const idbRecipes = await idbLoadAllRecipes();
+    if (idbRecipes && idbRecipes.length > 0) {
+      recipes = idbRecipes;
+    } else if (recipes && recipes.length > 0) {
+      await idbSaveAllRecipes(recipes);
+    }
+
+    const idbFridge = await idbGetVal('my_fridge');
+    if (idbFridge && Array.isArray(idbFridge)) {
+      myFridge = idbFridge;
+    } else if (myFridge) {
+      await idbSetVal('my_fridge', myFridge);
+    }
+
+    const idbHistory = await idbGetVal('cooking_history');
+    if (idbHistory && Array.isArray(idbHistory)) {
+      cookingHistory = idbHistory;
+    } else if (cookingHistory) {
+      await idbSetVal('cooking_history', cookingHistory);
+    }
+
+    const idbSettings = await idbGetVal('recent_settings');
+    if (idbSettings) {
+      recentSettings = idbSettings;
+    } else if (recentSettings) {
+      await idbSetVal('recent_settings', recentSettings);
+    }
+
+    renderRecipes();
+    renderFridgeList();
+    renderCalendar();
+    if (currentTab === 'kondate') generateKondateSuggestions();
+  } catch (err) {
+    console.warn("initIndexedDBData error:", err);
+  }
+}
 
 // --- DOM要素 ---
 const mainView = document.getElementById('main-view');
@@ -1046,24 +1231,7 @@ saveRecipeBtn.addEventListener('click', async () => {
       recipes.push(savedRecipe);
     }
 
-    // 保存処理（容量オーバー時は自動で写真軽量化して再試行）
-    try {
-      localStorage.setItem('my_recipes', JSON.stringify(recipes));
-    } catch (quotaErr) {
-      console.warn("Storage quota exceeded. Optimizing photo sizes...", quotaErr);
-      // 全レシピのrawPhotoを削除して軽量化
-      recipes.forEach(r => {
-        if (r.photo) r.rawPhoto = r.photo;
-        else delete r.rawPhoto;
-      });
-      try {
-        localStorage.setItem('my_recipes', JSON.stringify(recipes));
-      } catch (retryErr) {
-        console.error("Critical storage error:", retryErr);
-        alert('端末の空き容量が上限に達しました。不要なレシピを削除するかバックアップを取ってください。');
-      }
-    }
-
+    persistRecipes();
     if (savedRecipe) cloudSaveRecipe(savedRecipe);
     try { localStorage.removeItem('recipe_draft'); } catch(e){}
     resetForm();
@@ -1117,6 +1285,9 @@ function matchesSingleFilter(recipe) {
 
 function renderRecipes() {
   recipeListContainer.innerHTML = '';
+  const paginationContainer = document.getElementById('recipe-pagination');
+  if (paginationContainer) paginationContainer.innerHTML = '';
+
   const filtered = recipes.filter(matchesSingleFilter);
   const sorted = [...filtered].sort((a, b) => {
     // 「最近作ったもの」の優先順位下げモード
@@ -1130,14 +1301,27 @@ function renderRecipes() {
       : calculateMissingCount(a.ingredients) - calculateMissingCount(b.ingredients);
   });
 
-  if (!sorted.length) { recipeListContainer.innerHTML = '<p style="text-align:center;color:#94a3b8;padding:24px 0;font-size:13px;">条件に合うレシピがありません</p>'; return; }
-  sorted.forEach(recipe => {
+  const totalItems = sorted.length;
+  if (!totalItems) {
+    recipeListContainer.innerHTML = '<p style="text-align:center;color:#94a3b8;padding:24px 0;font-size:13px;">条件に合うレシピがありません</p>';
+    return;
+  }
+
+  // ページ範囲計算
+  const totalPages = Math.ceil(totalItems / pageSize) || 1;
+  if (currentPage > totalPages) currentPage = totalPages;
+  if (currentPage < 1) currentPage = 1;
+
+  const startIdx = (currentPage - 1) * pageSize;
+  const pagedRecipes = sorted.slice(startIdx, startIdx + pageSize);
+
+  pagedRecipes.forEach(recipe => {
     const mc = calculateMissingCount(recipe.ingredients);
     const f = recipe.features || {};
     const recentInfo = getRecentCookingInfo(recipe);
     const card = document.createElement('div'); card.className = 'recipe-card';
     card.innerHTML = `
-      <div class="recipe-thumb">${recipe.photo ? `<img src="${recipe.photo}" alt="${recipe.name}">` : '画像'}</div>
+      <div class="recipe-thumb">${recipe.photo ? `<img src="${recipe.photo}" alt="${recipe.name}" loading="lazy">` : '画像'}</div>
       <div class="recipe-info">
         <div class="recipe-title">${recipe.name}</div>
         <div class="recipe-tags">
@@ -1151,6 +1335,61 @@ function renderRecipes() {
       </div>`;
     card.addEventListener('click', () => openDetailView(recipe.id));
     recipeListContainer.appendChild(card);
+  });
+
+  // ページネーションコントロールの描画
+  if (paginationContainer && totalPages > 1) {
+    renderPaginationUI(paginationContainer, totalItems, totalPages);
+  }
+}
+
+function renderPaginationUI(container, totalItems, totalPages) {
+  let html = `<div class="pagination-controls">`;
+
+  // 「＜ 前へ」ボタン
+  html += `<button type="button" class="page-btn page-nav-btn" ${currentPage === 1 ? 'disabled' : ''} data-page="${currentPage - 1}">＜ 前へ</button>`;
+
+  // ページ番号ボタン
+  let startPage = Math.max(1, currentPage - 2);
+  let endPage = Math.min(totalPages, currentPage + 2);
+  if (currentPage <= 3) endPage = Math.min(totalPages, 5);
+  if (currentPage >= totalPages - 2) startPage = Math.max(1, totalPages - 4);
+
+  if (startPage > 1) {
+    html += `<button type="button" class="page-btn" data-page="1">1</button>`;
+    if (startPage > 2) html += `<span style="color:#94a3b8;padding:0 4px;">…</span>`;
+  }
+
+  for (let p = startPage; p <= endPage; p++) {
+    html += `<button type="button" class="page-btn ${p === currentPage ? 'active' : ''}" data-page="${p}">${p}</button>`;
+  }
+
+  if (endPage < totalPages) {
+    if (endPage < totalPages - 1) html += `<span style="color:#94a3b8;padding:0 4px;">…</span>`;
+    html += `<button type="button" class="page-btn" data-page="${totalPages}">${totalPages}</button>`;
+  }
+
+  // 「次へ ＞」ボタン
+  html += `<button type="button" class="page-btn page-nav-btn" ${currentPage === totalPages ? 'disabled' : ''} data-page="${currentPage + 1}">次へ ＞</button>`;
+  html += `</div>`;
+
+  // ページ情報表示
+  html += `<div class="page-info">${currentPage} / ${totalPages} ページ（全 ${totalItems} 件）</div>`;
+
+  container.innerHTML = html;
+
+  container.querySelectorAll('.page-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const p = parseInt(e.currentTarget.dataset.page, 10);
+      if (p && p !== currentPage && p >= 1 && p <= totalPages) {
+        currentPage = p;
+        renderRecipes();
+        // 画面トップへスクロール
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        const mv = document.getElementById('main-view');
+        if (mv) mv.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    });
   });
 }
 
@@ -1169,14 +1408,20 @@ function renderFilterSummary() {
   } else {
     kondateFilter.genres.forEach(g => badges.push({ label: g, remove: () => { kondateFilter.genres = kondateFilter.genres.filter(x => x !== g); } }));
     if (kondateFilter.comboType === 'staple+side-or-soup') badges.push({ label: 'ごはん/めん＋サブ', remove: () => { kondateFilter.comboType = 'main+side'; } });
-    if (kondateFilter.mainTaste) { const p = kondateFilter.tastePairing === 'opposite' ? '(対照)' : kondateFilter.tastePairing === 'same' ? '(統一)' : ''; badges.push({ label: `メイン:${kondateFilter.mainTaste}${p}`, remove: () => { kondateFilter.mainTaste = null; } }); }
+    else if (kondateFilter.comboType === 'takikomi+main') badges.push({ label: '炊き込み＋メイン', remove: () => { kondateFilter.comboType = 'main+side'; } });
+    else if (kondateFilter.comboType === 'custom') badges.push({ label: `カスタム:${(kondateFilter.customTypes||[]).join('+')}`, remove: () => { kondateFilter.comboType = 'main+side'; } });
+
+    if (kondateFilter.mainTastes && kondateFilter.mainTastes.length > 0) {
+      const p = kondateFilter.tastePairing === 'opposite' ? '(対照)' : kondateFilter.tastePairing === 'same' ? '(統一)' : '';
+      badges.push({ label: `味:${kondateFilter.mainTastes.join(',')}${p}`, remove: () => { kondateFilter.mainTastes = []; } });
+    }
     if (kondateFilter.sortBy === 'difficulty') badges.push({ label: 'めんどくさ度順▲', remove: () => { kondateFilter.sortBy = 'missing'; } });
   }
   if (!badges.length) { filterSummary.innerHTML = '<span class="filter-summary-empty">条件なし（すべて表示）</span>'; return; }
   badges.forEach(b => {
     const el = document.createElement('span'); el.className = 'filter-summary-badge';
     el.innerHTML = `${b.label}<span class="badge-remove">✕</span>`;
-    el.querySelector('.badge-remove').addEventListener('click', e => { e.stopPropagation(); b.remove(); renderFilterSummary(); syncFilterModalUI(); if (currentTab === 'single') renderRecipes(); else generateKondateSuggestions(); });
+    el.querySelector('.badge-remove').addEventListener('click', e => { e.stopPropagation(); b.remove(); renderFilterSummary(); syncFilterModalUI(); if (currentTab === 'single') { currentPage = 1; renderRecipes(); } else generateKondateSuggestions(); });
     filterSummary.appendChild(el);
   });
 }
@@ -1185,23 +1430,64 @@ function renderFilterSummary() {
 // 絞り込みモーダル
 // ============================================================
 function setupChipGroup(id, { mode, onSelect }) {
-  document.getElementById(id).querySelectorAll('.chip').forEach(chip => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.querySelectorAll('.chip').forEach(chip => {
     chip.addEventListener('click', () => {
-      if (mode === 'single') { const was = chip.classList.contains('selected'); document.getElementById(id).querySelectorAll('.chip').forEach(c => c.classList.remove('selected')); if (!was) chip.classList.add('selected'); }
-      else chip.classList.toggle('selected');
+      if (mode === 'single') {
+        const was = chip.classList.contains('selected');
+        el.querySelectorAll('.chip').forEach(c => c.classList.remove('selected'));
+        if (!was) chip.classList.add('selected');
+      } else {
+        chip.classList.toggle('selected');
+      }
       if (onSelect) onSelect();
     });
   });
 }
-function getSelectedChipValues(id) { return [...document.getElementById(id).querySelectorAll('.chip.selected')].map(c => c.dataset.value); }
-function setSelectedChipValues(id, vals) { document.getElementById(id).querySelectorAll('.chip').forEach(c => c.classList.toggle('selected', vals.includes(c.dataset.value))); }
+function getSelectedChipValues(id) {
+  const el = document.getElementById(id);
+  if (!el) return [];
+  return [...el.querySelectorAll('.chip.selected')].map(c => c.dataset.value);
+}
+function setSelectedChipValues(id, vals) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.querySelectorAll('.chip').forEach(c => c.classList.toggle('selected', (vals || []).includes(c.dataset.value)));
+}
 
 setupChipGroup('sf-difficulty-chips', { mode: 'single' });
 setupChipGroup('sf-taste-chips', { mode: 'multi' });
 setupChipGroup('sf-genre-chips', { mode: 'multi' });
 setupChipGroup('sf-type-chips', { mode: 'multi' });
 setupChipGroup('kf-genre-chips', { mode: 'multi' });
-setupChipGroup('kf-main-taste-chips', { mode: 'single', onSelect: () => { document.getElementById('kf-taste-pairing-section').style.display = getSelectedChipValues('kf-main-taste-chips').length > 0 ? 'block' : 'none'; } });
+setupChipGroup('kf-custom-type-chips', { mode: 'multi' });
+setupChipGroup('kf-main-taste-chips', {
+  mode: 'multi',
+  onSelect: () => {
+    const tastes = getSelectedChipValues('kf-main-taste-chips');
+    const combo = document.querySelector('input[name="kf-combo"]:checked')?.value;
+    const pairSec = document.getElementById('kf-taste-pairing-section');
+    if (pairSec) {
+      pairSec.style.display = (combo === 'main+side' && tastes.length > 0) ? 'block' : 'none';
+    }
+  }
+});
+
+// 献立組み合わせラジオボタン変更リスナー
+document.querySelectorAll('input[name="kf-combo"]').forEach(radio => {
+  radio.addEventListener('change', (e) => {
+    const customWrap = document.getElementById('kf-custom-types-wrap');
+    if (customWrap) {
+      customWrap.style.display = e.target.value === 'custom' ? 'block' : 'none';
+    }
+    const tastes = getSelectedChipValues('kf-main-taste-chips');
+    const pairSec = document.getElementById('kf-taste-pairing-section');
+    if (pairSec) {
+      pairSec.style.display = (e.target.value === 'main+side' && tastes.length > 0) ? 'block' : 'none';
+    }
+  });
+});
 
 document.getElementById('open-filter-btn').addEventListener('click', () => {
   if (currentTab === 'single') { syncSingleFilterModal(); singleFilterModal.classList.add('active'); }
@@ -1217,27 +1503,52 @@ function syncSingleFilterModal() {
 }
 function syncKondateFilterModal() {
   setSelectedChipValues('kf-genre-chips', kondateFilter.genres);
-  document.querySelector(`input[name="kf-combo"][value="${kondateFilter.comboType}"]`).checked = true;
-  setSelectedChipValues('kf-main-taste-chips', kondateFilter.mainTaste ? [kondateFilter.mainTaste] : []);
+  const comboRadio = document.querySelector(`input[name="kf-combo"][value="${kondateFilter.comboType}"]`);
+  if (comboRadio) comboRadio.checked = true;
+
+  const customWrap = document.getElementById('kf-custom-types-wrap');
+  if (customWrap) {
+    customWrap.style.display = kondateFilter.comboType === 'custom' ? 'block' : 'none';
+  }
+  setSelectedChipValues('kf-custom-type-chips', kondateFilter.customTypes || ['メインおかず', 'スープ/汁物']);
+
+  setSelectedChipValues('kf-main-taste-chips', kondateFilter.mainTastes || []);
   document.querySelector(`input[name="kf-taste-pair"][value="${kondateFilter.tastePairing}"]`).checked = true;
-  document.getElementById('kf-taste-pairing-section').style.display = kondateFilter.mainTaste ? 'block' : 'none';
+  
+  const pairSec = document.getElementById('kf-taste-pairing-section');
+  if (pairSec) {
+    pairSec.style.display = (kondateFilter.comboType === 'main+side' && (kondateFilter.mainTastes || []).length > 0) ? 'block' : 'none';
+  }
   document.querySelector(`input[name="kf-sort"][value="${kondateFilter.sortBy}"]`).checked = true;
 }
 function syncFilterModalUI() { if (currentTab === 'single') syncSingleFilterModal(); else syncKondateFilterModal(); }
 
 document.getElementById('close-single-filter-btn').addEventListener('click', () => singleFilterModal.classList.remove('active'));
-document.getElementById('reset-single-filter-btn').addEventListener('click', () => { singleFilter.maxDifficulty = null; singleFilter.tastes = []; singleFilter.genres = []; singleFilter.mealTypes = []; singleFilter.sortBy = 'missing'; syncSingleFilterModal(); });
+document.getElementById('reset-single-filter-btn').addEventListener('click', () => {
+  singleFilter.maxDifficulty = null; singleFilter.tastes = []; singleFilter.genres = []; singleFilter.mealTypes = []; singleFilter.sortBy = 'missing';
+  currentPage = 1;
+  syncSingleFilterModal();
+});
 document.getElementById('apply-single-filter-btn').addEventListener('click', () => {
   const d = getSelectedChipValues('sf-difficulty-chips'); singleFilter.maxDifficulty = d.length ? parseInt(d[0], 10) : null;
   singleFilter.tastes = getSelectedChipValues('sf-taste-chips'); singleFilter.genres = getSelectedChipValues('sf-genre-chips'); singleFilter.mealTypes = getSelectedChipValues('sf-type-chips');
   singleFilter.sortBy = document.querySelector('input[name="sf-sort"]:checked').value;
+  currentPage = 1;
   singleFilterModal.classList.remove('active'); renderFilterSummary(); renderRecipes();
 });
 document.getElementById('close-kondate-filter-btn').addEventListener('click', () => kondateFilterModal.classList.remove('active'));
-document.getElementById('reset-kondate-filter-btn').addEventListener('click', () => { kondateFilter.genres = []; kondateFilter.comboType = 'main+side'; kondateFilter.mainTaste = null; kondateFilter.tastePairing = 'opposite'; kondateFilter.sortBy = 'missing'; syncKondateFilterModal(); });
+document.getElementById('reset-kondate-filter-btn').addEventListener('click', () => {
+  kondateFilter.genres = []; kondateFilter.comboType = 'main+side'; kondateFilter.customTypes = ['メインおかず', 'スープ/汁物']; kondateFilter.mainTastes = []; kondateFilter.tastePairing = 'opposite'; kondateFilter.sortBy = 'missing';
+  syncKondateFilterModal();
+});
 document.getElementById('apply-kondate-filter-btn').addEventListener('click', () => {
-  kondateFilter.genres = getSelectedChipValues('kf-genre-chips'); kondateFilter.comboType = document.querySelector('input[name="kf-combo"]:checked').value;
-  const t = getSelectedChipValues('kf-main-taste-chips'); kondateFilter.mainTaste = t.length ? t[0] : null;
+  kondateFilter.genres = getSelectedChipValues('kf-genre-chips');
+  kondateFilter.comboType = document.querySelector('input[name="kf-combo"]:checked').value;
+  kondateFilter.customTypes = getSelectedChipValues('kf-custom-type-chips');
+  if (!kondateFilter.customTypes || !kondateFilter.customTypes.length) {
+    kondateFilter.customTypes = ['メインおかず', 'スープ/汁物'];
+  }
+  kondateFilter.mainTastes = getSelectedChipValues('kf-main-taste-chips');
   kondateFilter.tastePairing = document.querySelector('input[name="kf-taste-pair"]:checked').value;
   kondateFilter.sortBy = document.querySelector('input[name="kf-sort"]:checked').value;
   kondateFilterModal.classList.remove('active'); renderFilterSummary(); generateKondateSuggestions();
@@ -1300,7 +1611,7 @@ document.getElementById('detail-delete-btn').addEventListener('click', () => {
   if (!r || !confirm(`「${r.name}」を削除しますか？`)) return;
   const deletedId = currentDetailRecipeId;
   recipes = recipes.filter(r => r.id !== deletedId);
-  localStorage.setItem('my_recipes', JSON.stringify(recipes));
+  persistRecipes();
   cloudDeleteRecipe(deletedId);
   renderRecipes(); switchView(mainView);
 });
@@ -1382,7 +1693,7 @@ document.getElementById('confirm-deduct-btn').addEventListener('click', () => {
       fridgeItem.qty = Math.max(0, fridgeItem.qty - d.amount);
     }
   });
-  localStorage.setItem('my_fridge', JSON.stringify(myFridge));
+  persistFridge();
   cloudSaveFridge();
 
   recordCooking(recipe, servingsMade);
@@ -1398,7 +1709,7 @@ function recordCooking(recipe, servingsMade) {
     date: new Date().toISOString().split('T')[0],
     servings: servingsMade
   });
-  localStorage.setItem('cooking_history', JSON.stringify(cookingHistory));
+  persistCookingHistory();
   cloudSaveCookingHistory();
 }
 
@@ -1426,26 +1737,119 @@ function generateKondateSuggestions() {
   const sides = all.filter(r => (r.features||{}).mealType === 'サブおかず');
   const soups = all.filter(r => (r.features||{}).mealType === 'スープ/汁物');
   const staples = all.filter(r => { const m = (r.features||{}).mealType; return m === 'ごはん系' || m === 'めん系'; });
-  const opp = { 'あっさり': 'こってり', 'こってり': 'あっさり' };
+
+  // 味の対照関係マッピング（5種類）
+  const oppMap = {
+    'あっさり': ['こってり', '旨辛'],
+    'こってり': ['あっさり', '酸味・さっぱり'],
+    '旨辛': ['甘め', 'あっさり'],
+    '甘め': ['旨辛', '酸味・さっぱり', 'あっさり'],
+    '酸味・さっぱり': ['こってり', '甘め']
+  };
+
   function tasteFilter(dishes, role) {
-    if (!kondateFilter.mainTaste) return dishes;
-    if (role === 'main' || role === 'staple') return dishes.filter(r => (r.features||{}).taste === kondateFilter.mainTaste);
+    const selectedTastes = kondateFilter.mainTastes || [];
+    if (selectedTastes.length === 0) return dishes;
+
+    if (role === 'main' || role === 'staple' || role === 'takikomi') {
+      return dishes.filter(r => selectedTastes.includes((r.features||{}).taste));
+    }
     if (role === 'side') {
-      if (kondateFilter.tastePairing === 'opposite') { const o = opp[kondateFilter.mainTaste]; return o ? dishes.filter(r => (r.features||{}).taste === o) : dishes; }
-      if (kondateFilter.tastePairing === 'same') return dishes.filter(r => (r.features||{}).taste === kondateFilter.mainTaste);
+      if (kondateFilter.tastePairing === 'opposite') {
+        const oppTargets = new Set();
+        selectedTastes.forEach(t => {
+          (oppMap[t] || []).forEach(o => oppTargets.add(o));
+        });
+        const matched = dishes.filter(r => oppTargets.has((r.features||{}).taste));
+        return matched.length ? matched : dishes;
+      }
+      if (kondateFilter.tastePairing === 'same') {
+        const matched = dishes.filter(r => selectedTastes.includes((r.features||{}).taste));
+        return matched.length ? matched : dishes;
+      }
       return dishes;
     }
     return dishes;
   }
+
   let sets = [];
+
   if (kondateFilter.comboType === 'main+side') {
     const fm = tasteFilter(mains, 'main'), fs = tasteFilter(sides, 'side'), sl = soups.length ? soups : [null];
-    if (fm.length && fs.length) { for (const m of fm) for (const s of fs) for (const sp of sl) { const items = [{ recipe: m, role: 'メインおかず' }, { recipe: s, role: 'サブおかず' }]; if (sp) items.push({ recipe: sp, role: 'スープ/汁物' }); else items.push({ recipe: null, role: 'スープ/汁物', placeholder: '適当な味噌汁' }); sets.push(buildSetData(items)); } }
-  } else {
+    if (fm.length && fs.length) {
+      for (const m of fm) for (const s of fs) for (const sp of sl) {
+        const items = [{ recipe: m, role: 'メインおかず' }, { recipe: s, role: 'サブおかず' }];
+        if (sp) items.push({ recipe: sp, role: 'スープ/汁物' });
+        else items.push({ recipe: null, role: 'スープ/汁物', placeholder: '適当な味噌汁' });
+        sets.push(buildSetData(items));
+      }
+    }
+  } else if (kondateFilter.comboType === 'staple+side-or-soup') {
     const fst = tasteFilter(staples, 'staple'), fsd = tasteFilter(sides, 'side');
     const comps = [...fsd, ...soups];
-    if (fst.length) { if (!comps.length) { fst.forEach(s => { const rl = (s.features||{}).mealType === 'めん系' ? 'めん系' : 'ごはん系'; sets.push(buildSetData([{ recipe: s, role: rl }, { recipe: null, role: 'スープ/汁物', placeholder: '適当なコンソメスープ' }])); }); }
-    else { for (const st of fst) { const rl = (st.features||{}).mealType === 'めん系' ? 'めん系' : 'ごはん系'; for (const c of comps) { const cr = (c.features||{}).mealType === 'スープ/汁物' ? 'スープ/汁物' : 'サブおかず'; sets.push(buildSetData([{ recipe: st, role: rl }, { recipe: c, role: cr }])); } } } }
+    if (fst.length) {
+      if (!comps.length) {
+        fst.forEach(s => {
+          const rl = (s.features||{}).mealType === 'めん系' ? 'めん系' : 'ごはん系';
+          sets.push(buildSetData([{ recipe: s, role: rl }, { recipe: null, role: 'スープ/汁物', placeholder: '適当なコンソメスープ' }]));
+        });
+      } else {
+        for (const st of fst) {
+          const rl = (st.features||{}).mealType === 'めん系' ? 'めん系' : 'ごはん系';
+          for (const c of comps) {
+            const cr = (c.features||{}).mealType === 'スープ/汁物' ? 'スープ/汁物' : 'サブおかず';
+            sets.push(buildSetData([{ recipe: st, role: rl }, { recipe: c, role: cr }]));
+          }
+        }
+      }
+    }
+  } else if (kondateFilter.comboType === 'takikomi+main') {
+    // 炊き込みご飯判定
+    const takikomiDishes = all.filter(r => {
+      const f = r.features || {};
+      return f.genre === '炊き込みご飯' || (f.mealType === 'ごはん系' && (r.name.includes('炊き込み') || (f.freeTags||[]).includes('炊き込みご飯')));
+    });
+    const pool = takikomiDishes.length > 0 ? takikomiDishes : staples.filter(s => (s.features||{}).mealType === 'ごはん系');
+    const ftk = tasteFilter(pool, 'takikomi');
+    const fm = tasteFilter(mains, 'main');
+    const sl = soups.length ? soups : [null];
+
+    if (ftk.length && fm.length) {
+      for (const tk of ftk) for (const m of fm) for (const sp of sl) {
+        const items = [{ recipe: tk, role: 'ごはん系' }, { recipe: m, role: 'メインおかず' }];
+        if (sp) items.push({ recipe: sp, role: 'スープ/汁物' });
+        else items.push({ recipe: null, role: 'スープ/汁物', placeholder: '適当なお吸い物・味噌汁' });
+        sets.push(buildSetData(items));
+      }
+    }
+  } else if (kondateFilter.comboType === 'custom') {
+    // その他（カスタム品目）
+    const chosenTypes = (kondateFilter.customTypes && kondateFilter.customTypes.length >= 2)
+      ? kondateFilter.customTypes
+      : ['メインおかず', 'スープ/汁物'];
+
+    const typePools = chosenTypes.map(t => {
+      let pool = all.filter(r => (r.features||{}).mealType === t);
+      if (t === 'メインおかず' || t === 'ごはん系') pool = tasteFilter(pool, 'main');
+      else if (t === 'サブおかず') pool = tasteFilter(pool, 'side');
+      return { type: t, pool };
+    });
+
+    const validPools = typePools.filter(p => p.pool.length > 0);
+    if (validPools.length >= 2) {
+      function cartesian(index, currentItems) {
+        if (index === validPools.length) {
+          sets.push(buildSetData(currentItems));
+          return;
+        }
+        if (sets.length > 120) return; // 組み合わせ爆発防止
+        const { type, pool } = validPools[index];
+        for (const item of pool.slice(0, 5)) {
+          cartesian(index + 1, [...currentItems, { recipe: item, role: type }]);
+        }
+      }
+      cartesian(0, []);
+    }
   }
   function setHasRecentMain(set) {
     return set.items.some(item => {
@@ -1472,7 +1876,11 @@ function generateKondateSuggestions() {
     return kondateFilter.sortBy === 'difficulty' ? a.totalDifficulty - b.totalDifficulty : a.missingCount - b.missingCount;
   });
 
-  const label = kondateFilter.comboType === 'main+side' ? '🍱 メインおかず＋サブおかず' : '🍝 ごはん系/めん系＋サブ or スープ';
+  let label = '🍱 献立提案';
+  if (kondateFilter.comboType === 'main+side') label = '🍱 メインおかず＋サブおかず';
+  else if (kondateFilter.comboType === 'staple+side-or-soup') label = '🍝 ごはん系/めん系＋サブ or スープ';
+  else if (kondateFilter.comboType === 'takikomi+main') label = '🍚 炊き込みご飯＋メインおかず';
+  else if (kondateFilter.comboType === 'custom') label = `✨ カスタム献立（${(kondateFilter.customTypes || ['メインおかず', 'スープ/汁物']).join('＋')}）`;
   const sec = document.createElement('div'); sec.className = 'kondate-type-section'; sec.innerHTML = `<h3>${label}</h3>`;
   sets.slice(0, 8).forEach((s, i) => sec.appendChild(createKondateCard(s, i + 1)));
   kondateResults.appendChild(sec);
@@ -1539,7 +1947,7 @@ function handleCookedKondateSet(set) {
     recordCooking(recipe, servings);
   });
 
-  localStorage.setItem('my_fridge', JSON.stringify(myFridge));
+  persistFridge();
   cloudSaveFridge();
   renderRecipes();
   generateKondateSuggestions();
@@ -1589,7 +1997,7 @@ document.getElementById('save-fridge-btn').addEventListener('click', () => {
   });
   // ダブり合算
   myFridge = mergeFridgeItems(items);
-  localStorage.setItem('my_fridge', JSON.stringify(myFridge));
+  persistFridge();
   cloudSaveFridge();
   renderRecipes();
   if (currentTab === 'kondate') generateKondateSuggestions();
@@ -1734,7 +2142,7 @@ closeCalendarBtn.addEventListener('click', () => {
 
 recentDaysSelect.addEventListener('change', (e) => {
   recentSettings.days = parseInt(e.target.value, 10);
-  localStorage.setItem('recent_settings', JSON.stringify(recentSettings));
+  persistRecentSettings();
   cloudSaveRecentSettings();
   renderRecipes();
   if (currentTab === 'kondate') generateKondateSuggestions();
@@ -1743,7 +2151,7 @@ recentDaysSelect.addEventListener('change', (e) => {
 document.querySelectorAll('input[name="recent-mode"]').forEach(radio => {
   radio.addEventListener('change', (e) => {
     recentSettings.mode = e.target.value;
-    localStorage.setItem('recent_settings', JSON.stringify(recentSettings));
+    persistRecentSettings();
     cloudSaveRecentSettings();
     renderRecipes();
     if (currentTab === 'kondate') generateKondateSuggestions();
@@ -1874,7 +2282,7 @@ function renderDayHistory() {
       const originalIdx = cookingHistory.findIndex(h => h === rec);
       if (originalIdx !== -1) {
         cookingHistory.splice(originalIdx, 1);
-        localStorage.setItem('cooking_history', JSON.stringify(cookingHistory));
+        persistCookingHistory();
         cloudSaveCookingHistory();
         renderCalendar();
         renderDayHistory();
@@ -1929,7 +2337,7 @@ saveCalAddBtn.addEventListener('click', () => {
     servings: servings
   });
 
-  localStorage.setItem('cooking_history', JSON.stringify(cookingHistory));
+  persistCookingHistory();
   cloudSaveCookingHistory();
   calendarAddModal.classList.remove('active');
 
@@ -2099,7 +2507,7 @@ function setupCloudSync(groupId) {
     if (remote.length > 0) {
       remote.sort((a, b) => (a.id || 0) - (b.id || 0));
       recipes = remote;
-      localStorage.setItem('my_recipes', JSON.stringify(recipes));
+      persistRecipes();
       renderRecipes();
       if (currentDetailRecipeId) {
         const cur = recipes.find(r => r.id === currentDetailRecipeId);
@@ -2116,7 +2524,7 @@ function setupCloudSync(groupId) {
     if (doc.exists && doc.data() && Array.isArray(doc.data().items)) {
       isRemoteUpdating = true;
       myFridge = doc.data().items;
-      localStorage.setItem('my_fridge', JSON.stringify(myFridge));
+      persistFridge();
       renderRecipes();
       renderFridgeList();
       isRemoteUpdating = false;
@@ -2130,7 +2538,7 @@ function setupCloudSync(groupId) {
     if (doc.exists && doc.data() && Array.isArray(doc.data().list)) {
       isRemoteUpdating = true;
       cookingHistory = doc.data().list;
-      localStorage.setItem('cooking_history', JSON.stringify(cookingHistory));
+      persistCookingHistory();
       renderCalendar();
       renderDayHistory();
       renderRecipes();
@@ -2146,7 +2554,7 @@ function setupCloudSync(groupId) {
     if (doc.exists && doc.data() && doc.data().data) {
       isRemoteUpdating = true;
       recentSettings = doc.data().data;
-      localStorage.setItem('recent_settings', JSON.stringify(recentSettings));
+      persistRecentSettings();
       initRecentSettingsUI();
       renderRecipes();
       isRemoteUpdating = false;
@@ -2265,10 +2673,10 @@ function importBackupData(file) {
       if (Array.isArray(data.cookingHistory)) cookingHistory = data.cookingHistory;
       if (data.recentSettings) recentSettings = data.recentSettings;
 
-      localStorage.setItem('my_recipes', JSON.stringify(recipes));
-      localStorage.setItem('my_fridge', JSON.stringify(myFridge));
-      localStorage.setItem('cooking_history', JSON.stringify(cookingHistory));
-      localStorage.setItem('recent_settings', JSON.stringify(recentSettings));
+      persistRecipes();
+      persistFridge();
+      persistCookingHistory();
+      persistRecentSettings();
 
       if (isSyncActive && db && currentGroupId) {
         await uploadAllToCloud(currentGroupId);
@@ -2367,6 +2775,7 @@ function cleanupStorageData() {
 
 cleanupStorageData();
 initFirebase();
+initIndexedDBData();
 if (currentGroupId) {
   setupCloudSync(currentGroupId);
 } else {
