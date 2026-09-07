@@ -1654,51 +1654,109 @@ document.getElementById('detail-delete-btn').addEventListener('click', () => {
 });
 
 // ============================================================
-// 「今日作った！」フロー
+// 「今日作った！」フロー（単品・献立共通）
 // ============================================================
+let currentCookedContext = null;
+
+// 単品検索での「🍳 作った！」
 document.getElementById('detail-cooked-btn').addEventListener('click', () => {
   const recipe = recipes.find(r => r.id === currentDetailRecipeId);
   if (!recipe) return;
+  currentCookedContext = { type: 'single', recipe };
+
+  const menuNameEl = document.getElementById('cooked-menu-name');
+  if (menuNameEl) {
+    menuNameEl.textContent = `【メニュー】 ${recipe.name}`;
+    menuNameEl.style.display = 'block';
+  }
   document.getElementById('cooked-servings').value = recipe.servings || 1;
-  document.getElementById('cooked-base-servings').textContent = recipe.servings || 1;
+  const labelEl = document.getElementById('cooked-servings-label');
+  if (labelEl) {
+    labelEl.innerHTML = `人前（レシピ基準: <span id="cooked-base-servings">${recipe.servings || 1}</span>人前）`;
+  }
   document.querySelector('input[name="cooked-deduct"][value="auto"]').checked = true;
   cookedModal.classList.add('active');
 });
 
+// 献立検索での「🍳 この献立を作った！」
+function handleCookedKondateSet(set) {
+  const realItems = set.items.filter(it => it.recipe);
+  if (!realItems.length) return;
+  currentCookedContext = { type: 'kondate', set, realItems };
+
+  const names = realItems.map(it => it.recipe.name).join('、');
+  const menuNameEl = document.getElementById('cooked-menu-name');
+  if (menuNameEl) {
+    menuNameEl.textContent = `【献立メニュー】\n${names}`;
+    menuNameEl.style.display = 'block';
+  }
+  const defaultServings = realItems[0].recipe.servings || 1;
+  document.getElementById('cooked-servings').value = defaultServings;
+  const labelEl = document.getElementById('cooked-servings-label');
+  if (labelEl) {
+    labelEl.innerHTML = `人前分`;
+  }
+  document.querySelector('input[name="cooked-deduct"][value="auto"]').checked = true;
+  cookedModal.classList.add('active');
+}
+
 document.getElementById('cancel-cooked-btn').addEventListener('click', () => cookedModal.classList.remove('active'));
 
 document.getElementById('confirm-cooked-btn').addEventListener('click', () => {
-  const recipe = recipes.find(r => r.id === currentDetailRecipeId);
-  if (!recipe) return;
+  if (!currentCookedContext) return;
 
   const servingsMade = parseInt(document.getElementById('cooked-servings').value, 10) || 1;
   const deductMode = document.querySelector('input[name="cooked-deduct"]:checked').value;
   cookedModal.classList.remove('active');
 
   if (deductMode === 'auto') {
-    showDeductConfirmation(recipe, servingsMade);
+    showDeductConfirmation(currentCookedContext, servingsMade);
   } else {
-    recordCooking(recipe, servingsMade);
+    executeCookingRecord(currentCookedContext, servingsMade, []);
   }
 });
 
-function showDeductConfirmation(recipe, servingsMade) {
-  const baseServings = recipe.servings || 1;
-  const ratio = servingsMade / baseServings;
+function showDeductConfirmation(context, servingsMade) {
   const deductListEl = document.getElementById('deduct-list');
   deductListEl.innerHTML = '';
-
   const deductions = [];
-  (recipe.ingredients || []).forEach(ing => {
-    if (ing.isPantry) return; // 常備品はスキップ
-    const parsedQty = parseQty(ing.qty);
-    if (parsedQty === null) {
-      deductions.push({ name: ing.name, amount: null, unit: ing.unit, skipped: true, reason: `${ing.qty || '適量'}のためスキップ` });
-    } else {
-      const amount = parsedQty * ratio;
-      deductions.push({ name: ing.name, amount, unit: ing.unit, skipped: false });
-    }
-  });
+
+  if (context.type === 'single') {
+    const recipe = context.recipe;
+    const baseServings = recipe.servings || 1;
+    const ratio = servingsMade / baseServings;
+    (recipe.ingredients || []).forEach(ing => {
+      if (ing.isPantry) return; // 常備品はスキップ
+      const parsedQty = parseQty(ing.qty);
+      if (parsedQty === null) {
+        deductions.push({ name: ing.name, amount: null, unit: ing.unit, skipped: true, reason: `${ing.qty || '適量'}のためスキップ` });
+      } else {
+        deductions.push({ name: ing.name, amount: parsedQty * ratio, unit: ing.unit, skipped: false });
+      }
+    });
+  } else if (context.type === 'kondate') {
+    // 献立内の全品目の材料を走査し合算
+    context.realItems.forEach(({ recipe }) => {
+      const baseServings = recipe.servings || 1;
+      const ratio = servingsMade / baseServings;
+      (recipe.ingredients || []).forEach(ing => {
+        if (ing.isPantry) return;
+        const parsedQty = parseQty(ing.qty);
+        if (parsedQty === null) {
+          deductions.push({ name: ing.name, amount: null, unit: ing.unit, skipped: true, reason: `${ing.qty || '適量'}のためスキップ` });
+        } else {
+          const calcAmount = parsedQty * ratio;
+          // 同一食材名かつ同一単位があれば合算
+          const existing = deductions.find(d => !d.skipped && d.name === ing.name && d.unit === ing.unit);
+          if (existing) {
+            existing.amount += calcAmount;
+          } else {
+            deductions.push({ name: ing.name, amount: calcAmount, unit: ing.unit, skipped: false });
+          }
+        }
+      });
+    });
+  }
 
   deductions.forEach(d => {
     const div = document.createElement('div');
@@ -1708,8 +1766,8 @@ function showDeductConfirmation(recipe, servingsMade) {
   });
 
   // 確認モーダルに控除データを保存
+  deductConfirmModal._context = context;
   deductConfirmModal._deductions = deductions;
-  deductConfirmModal._recipe = recipe;
   deductConfirmModal._servingsMade = servingsMade;
   deductConfirmModal.classList.add('active');
 }
@@ -1720,7 +1778,7 @@ document.getElementById('cancel-deduct-btn').addEventListener('click', () => {
 });
 
 document.getElementById('confirm-deduct-btn').addEventListener('click', () => {
-  const { _deductions: deductions, _recipe: recipe, _servingsMade: servingsMade } = deductConfirmModal;
+  const { _context: context, _deductions: deductions, _servingsMade: servingsMade } = deductConfirmModal;
   deductConfirmModal.classList.remove('active');
 
   // 冷蔵庫から控除
@@ -1733,11 +1791,27 @@ document.getElementById('confirm-deduct-btn').addEventListener('click', () => {
   persistFridge();
   cloudSaveFridge();
 
-  recordCooking(recipe, servingsMade);
-  renderRecipes();
-  // 詳細画面を更新
-  openDetailView(recipe.id);
+  executeCookingRecord(context, servingsMade, deductions);
 });
+
+function executeCookingRecord(context, servingsMade, deductions) {
+  if (context.type === 'single') {
+    recordCooking(context.recipe, servingsMade);
+    renderRecipes();
+    openDetailView(context.recipe.id);
+    const deductMsg = deductions.length ? '（冷蔵庫の食材も減算しました）' : '';
+    alert(`「${context.recipe.name}」をカレンダーに記録しました！${deductMsg}`);
+  } else if (context.type === 'kondate') {
+    context.realItems.forEach(({ recipe }) => {
+      recordCooking(recipe, servingsMade);
+    });
+    renderRecipes();
+    generateKondateSuggestions();
+    const names = context.realItems.map(it => it.recipe.name).join('、');
+    const deductMsg = deductions.length ? '\n※冷蔵庫の材料も自動で減算されました。' : '\n※冷蔵庫の材料は減算されていません（手動管理）。';
+    alert(`【記録完了】\n「${names}」をカレンダーに記録しました！${deductMsg}`);
+  }
+}
 
 function recordCooking(recipe, servingsMade) {
   cookingHistory.push({
@@ -1999,35 +2073,7 @@ function createKondateCard(set, rank) {
   return card;
 }
 
-function handleCookedKondateSet(set) {
-  const realItems = set.items.filter(it => it.recipe);
-  const names = realItems.map(it => it.recipe.name).join('、');
-  if (!confirm(`この献立を作った記録を保存しますか？\n\n【対象メニュー】\n${names}\n\n※冷蔵庫の材料も自動で控除されます。`)) {
-    return;
-  }
 
-  // 各メニューの記録と冷蔵庫控除
-  realItems.forEach(({ recipe }) => {
-    const servings = recipe.servings || 1;
-    (recipe.ingredients || []).forEach(ing => {
-      if (ing.isPantry) return;
-      const parsed = parseQty(ing.qty);
-      if (parsed !== null) {
-        const fridgeItem = myFridge.find(f => f.name === ing.name);
-        if (fridgeItem && fridgeItem.qty !== null) {
-          fridgeItem.qty = Math.max(0, fridgeItem.qty - parsed);
-        }
-      }
-    });
-    recordCooking(recipe, servings);
-  });
-
-  persistFridge();
-  cloudSaveFridge();
-  renderRecipes();
-  generateKondateSuggestions();
-  alert(`「${names}」をカレンダーに記録しました！`);
-}
 function getRoleClass(r) { return { 'メインおかず': 'main-dish', 'サブおかず': 'side-dish', 'スープ/汁物': 'soup', 'ごはん系': 'staple', '丼もの': 'staple', '炊き込みご飯': 'staple', 'めん系': 'staple' }[r] || ''; }
 
 // ============================================================

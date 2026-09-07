@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>レシピ管理アプリ</title>
-  <link rel="stylesheet" href="style.css?v=20260907c">
+  <link rel="stylesheet" href="style.css?v=20260907d">
 </head>
 <body>
 
@@ -272,10 +272,11 @@
     <div id="cooked-modal" class="modal-overlay">
       <div class="modal-content">
         <h3>🍳 今日作った！</h3>
+        <div id="cooked-menu-name" style="font-weight:bold; color:#1e293b; font-size:13px; margin:4px 0 10px; padding:6px 10px; background:#f8fafc; border-radius:6px; border:1px solid #e2e8f0; display:none; white-space:pre-wrap;"></div>
         <label>作った量:
           <div class="cooked-servings-row">
             <input type="number" id="cooked-servings" value="1" min="1" class="servings-input">
-            <span>人前（レシピ基準: <span id="cooked-base-servings">1</span>人前）</span>
+            <span id="cooked-servings-label">人前（レシピ基準: <span id="cooked-base-servings">1</span>人前）</span>
           </div>
         </label>
         <div class="filter-section" style="margin-bottom:0;">
@@ -476,6 +477,6 @@
   <!-- Firebase Compat SDK -->
   <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
-  <script src="script.js?v=20260907c"></script>
+  <script src="script.js?v=20260907d"></script>
 </body>
 </html>
