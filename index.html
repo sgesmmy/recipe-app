@@ -25,8 +25,8 @@
         <button class="tab" data-tab="kondate">こんだてけんさく</button>
       </div>
       <main class="recipe-list" id="recipe-list"></main>
-      <div id="recipe-pagination" class="recipe-pagination"></div>
       <div id="kondate-results"></div>
+      <div id="recipe-pagination" class="recipe-pagination"></div>
       <footer class="bottom-nav">
         <button id="open-fridge-btn" class="nav-btn fridge-btn">
           <span class="icon">🧊</span><span>冷蔵庫</span>
@@ -221,7 +221,6 @@
             <option value="洋風">洋風</option>
             <option value="中華">中華</option>
             <option value="エスニック">エスニック</option>
-            <option value="炊き込みご飯">炊き込みご飯</option>
             <option value="その他">その他</option>
           </select>
         </label>
@@ -229,9 +228,10 @@
           <select id="modal-meal-type">
             <option value="メインおかず">メインおかず</option>
             <option value="サブおかず">サブおかず</option>
-            <option value="ごはん系">ごはん系</option>
-            <option value="めん系">めん系</option>
             <option value="スープ/汁物">スープ/汁物</option>
+            <option value="丼もの">丼もの</option>
+            <option value="炊き込みご飯">炊き込みご飯</option>
+            <option value="めん系">めん系</option>
           </select>
         </label>
         <label>所要時間（目安）:
@@ -316,8 +316,8 @@
         <div class="filter-modal-body">
           <div class="filter-section"><h4>めんどくさ度</h4><p class="filter-hint">選んだ★以下で絞り込み</p><div class="chip-group" id="sf-difficulty-chips"><button class="chip" data-value="1">★1</button><button class="chip" data-value="2">★2</button><button class="chip" data-value="3">★3</button><button class="chip" data-value="4">★4</button><button class="chip" data-value="5">★5</button></div></div>
           <div class="filter-section"><h4>味の系統<span class="filter-multi-label">複数選択可</span></h4><div class="chip-group" id="sf-taste-chips"><button class="chip" data-value="あっさり">あっさり</button><button class="chip" data-value="こってり">こってり</button><button class="chip" data-value="旨辛">旨辛</button><button class="chip" data-value="甘め">甘め</button><button class="chip" data-value="酸味・さっぱり">酸味・さっぱり</button></div></div>
-          <div class="filter-section"><h4>ジャンル<span class="filter-multi-label">複数選択可</span></h4><div class="chip-group" id="sf-genre-chips"><button class="chip" data-value="和風">和風</button><button class="chip" data-value="洋風">洋風</button><button class="chip" data-value="中華">中華</button><button class="chip" data-value="エスニック">エスニック</button><button class="chip" data-value="炊き込みご飯">炊き込みご飯</button><button class="chip" data-value="その他">その他</button></div></div>
-          <div class="filter-section"><h4>タイプ<span class="filter-multi-label">複数選択可</span></h4><div class="chip-group" id="sf-type-chips"><button class="chip" data-value="メインおかず">メインおかず</button><button class="chip" data-value="サブおかず">サブおかず</button><button class="chip" data-value="ごはん系">ごはん系</button><button class="chip" data-value="めん系">めん系</button><button class="chip" data-value="スープ/汁物">スープ/汁物</button></div></div>
+          <div class="filter-section"><h4>ジャンル<span class="filter-multi-label">複数選択可</span></h4><div class="chip-group" id="sf-genre-chips"><button class="chip" data-value="和風">和風</button><button class="chip" data-value="洋風">洋風</button><button class="chip" data-value="中華">中華</button><button class="chip" data-value="エスニック">エスニック</button><button class="chip" data-value="その他">その他</button></div></div>
+          <div class="filter-section"><h4>タイプ<span class="filter-multi-label">複数選択可</span></h4><div class="chip-group" id="sf-type-chips"><button class="chip" data-value="メインおかず">メインおかず</button><button class="chip" data-value="サブおかず">サブおかず</button><button class="chip" data-value="スープ/汁物">スープ/汁物</button><button class="chip" data-value="丼もの">丼もの</button><button class="chip" data-value="炊き込みご飯">炊き込みご飯</button><button class="chip" data-value="めん系">めん系</button></div></div>
           <div class="filter-section"><h4>並べ替え</h4><div class="radio-group"><label class="radio-item"><input type="radio" name="sf-sort" value="missing" checked> 不足食材が少ない順</label><label class="radio-item"><input type="radio" name="sf-sort" value="difficulty"> めんどくさ度が低い順</label></div></div>
         </div>
         <div class="filter-modal-footer"><button type="button" id="apply-single-filter-btn" class="primary-btn filter-apply-btn">この条件で検索</button></div>
@@ -333,12 +333,12 @@
           <button type="button" id="reset-kondate-filter-btn" class="filter-modal-reset">リセット</button>
         </div>
         <div class="filter-modal-body">
-          <div class="filter-section"><h4>ジャンル<span class="filter-multi-label">複数選択可</span></h4><div class="chip-group" id="kf-genre-chips"><button class="chip" data-value="和風">和風</button><button class="chip" data-value="洋風">洋風</button><button class="chip" data-value="中華">中華</button><button class="chip" data-value="エスニック">エスニック</button><button class="chip" data-value="炊き込みご飯">炊き込みご飯</button><button class="chip" data-value="その他">その他</button></div></div>
+          <div class="filter-section"><h4>ジャンル<span class="filter-multi-label">複数選択可</span></h4><div class="chip-group" id="kf-genre-chips"><button class="chip" data-value="和風">和風</button><button class="chip" data-value="洋風">洋風</button><button class="chip" data-value="中華">中華</button><button class="chip" data-value="エスニック">エスニック</button><button class="chip" data-value="その他">その他</button></div></div>
           <div class="filter-section">
             <h4>組み合わせタイプ</h4>
             <div class="radio-group">
               <label class="radio-item"><input type="radio" name="kf-combo" value="main+side" checked> メインおかず＋サブおかず</label>
-              <label class="radio-item"><input type="radio" name="kf-combo" value="staple+side-or-soup"> ごはん系/めん系＋サブ or スープ</label>
+              <label class="radio-item"><input type="radio" name="kf-combo" value="staple+side-or-soup"> 丼もの/めん系＋サブ or スープ</label>
               <label class="radio-item"><input type="radio" name="kf-combo" value="takikomi+main"> 炊き込みご飯＋メインおかず</label>
               <label class="radio-item"><input type="radio" name="kf-combo" value="custom"> その他（カスタム）</label>
             </div>
@@ -349,7 +349,8 @@
                 <button type="button" class="chip active" data-value="メインおかず">メインおかず</button>
                 <button type="button" class="chip active" data-value="スープ/汁物">スープ/汁物</button>
                 <button type="button" class="chip" data-value="サブおかず">サブおかず</button>
-                <button type="button" class="chip" data-value="ごはん系">ごはん系</button>
+                <button type="button" class="chip" data-value="丼もの">丼もの</button>
+                <button type="button" class="chip" data-value="炊き込みご飯">炊き込みご飯</button>
                 <button type="button" class="chip" data-value="めん系">めん系</button>
               </div>
             </div>

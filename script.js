@@ -91,7 +91,7 @@ const defaultRecipes = [
   },
   {
     id: 10, name: "チャーハン", servings: 1,
-    features: { difficulty: "2", taste: "こってり", genre: "中華", mealType: "ごはん系", time: 10, freeTags: [] },
+    features: { difficulty: "2", taste: "こってり", genre: "中華", mealType: "丼もの", time: 10, freeTags: [] },
     ingredients: [
       { name: "ごはん", qty: "1", unit: "膳", isPantry: false, group: null },
       { name: "卵", qty: "1", unit: "個", isPantry: false, group: null },
@@ -278,6 +278,8 @@ let currentTab = 'single';
 // ページネーション状態
 let currentPage = 1;
 const pageSize = 10;
+let currentKondatePage = 1;
+const kondatePageSize = 6;
 
 const singleFilter = { maxDifficulty: null, tastes: [], genres: [], mealTypes: [], sortBy: 'missing' };
 const kondateFilter = {
@@ -292,7 +294,15 @@ const kondateFilter = {
 // --- マイグレーション ---
 (function migrate() {
   // mealType リネーム
-  const mealMap = { 'おかず': 'メインおかず', '主菜': 'メインおかず', '副菜': 'サブおかず', 'ごはんもの': 'ごはん系', 'めん類': 'めん系', '汁物/スープ': 'スープ/汁物' };
+  const mealMap = {
+    'おかず': 'メインおかず',
+    '主菜': 'メインおかず',
+    '副菜': 'サブおかず',
+    'ごはんもの': '丼もの',
+    'ごはん系': '丼もの',
+    'めん類': 'めん系',
+    '汁物/スープ': 'スープ/汁物'
+  };
   let recipeChanged = false;
 
   // デフォルトテストレシピの自動補完（まだ登録されていないものを追加）
@@ -309,10 +319,24 @@ const kondateFilter = {
     if (!r.ingredients) { r.ingredients = []; recipeChanged = true; }
     if (!r.groups) { r.groups = []; recipeChanged = true; }
     if (!r.steps) { r.steps = []; recipeChanged = true; }
-    // mealType リネーム
-    if (r.features && mealMap[r.features.mealType]) {
-      r.features.mealType = mealMap[r.features.mealType];
+
+    // 旧ジャンル「炊き込みご飯」をタイプに移行
+    if (r.features && r.features.genre === '炊き込みご飯') {
+      r.features.mealType = '炊き込みご飯';
+      r.features.genre = '和風';
       recipeChanged = true;
+    }
+
+    // mealType リネーム & ごはん系から丼もの/炊き込みご飯への振り分け
+    if (r.features && r.features.mealType) {
+      if (r.features.mealType === 'ごはん系') {
+        const isTaki = r.name.includes('炊き込み') || r.name.includes('炊きこみ') || r.name.includes('釜飯') || (r.features.freeTags || []).includes('炊き込みご飯');
+        r.features.mealType = isTaki ? '炊き込みご飯' : '丼もの';
+        recipeChanged = true;
+      } else if (mealMap[r.features.mealType]) {
+        r.features.mealType = mealMap[r.features.mealType];
+        recipeChanged = true;
+      }
     }
     // servings フィールドがなければ追加
     if (r.servings === undefined) {
@@ -846,7 +870,7 @@ function formatCookingTime(time) {
 function getRecentCookingInfo(recipe) {
   if (!recipe) return null;
   const mealType = recipe.features?.mealType;
-  if (!['メインおかず', 'ごはん系', 'めん系'].includes(mealType)) return null;
+  if (!['メインおかず', '丼もの', '炊き込みご飯', 'ごはん系', 'めん系'].includes(mealType)) return null;
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -1338,56 +1362,59 @@ function renderRecipes() {
   });
 
   // ページネーションコントロールの描画
-  if (paginationContainer && totalPages > 1) {
-    renderPaginationUI(paginationContainer, totalItems, totalPages);
+  if (paginationContainer) {
+    if (totalPages > 1) {
+      renderPaginationUI(paginationContainer, currentPage, totalPages, totalItems, (p) => {
+        currentPage = p;
+        renderRecipes();
+        recipeListContainer.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+    } else {
+      paginationContainer.innerHTML = '';
+    }
   }
 }
 
-function renderPaginationUI(container, totalItems, totalPages) {
+function renderPaginationUI(container, current, totalPages, totalItems, onPageChange) {
   let html = `<div class="pagination-controls">`;
 
   // 「＜ 前へ」ボタン
-  html += `<button type="button" class="page-btn page-nav-btn" ${currentPage === 1 ? 'disabled' : ''} data-page="${currentPage - 1}">＜ 前へ</button>`;
+  html += `<button type="button" class="page-btn page-nav-btn" ${current === 1 ? 'disabled' : ''} data-page="${current - 1}">＜ 前へ</button>`;
 
-  // ページ番号ボタン
-  let startPage = Math.max(1, currentPage - 2);
-  let endPage = Math.min(totalPages, currentPage + 2);
-  if (currentPage <= 3) endPage = Math.min(totalPages, 5);
-  if (currentPage >= totalPages - 2) startPage = Math.max(1, totalPages - 4);
+  // ページ番号ボタン（改行防止のためコンパクトに制御）
+  let startPage = Math.max(1, current - 1);
+  let endPage = Math.min(totalPages, current + 1);
+  if (current <= 2) endPage = Math.min(totalPages, 3);
+  if (current >= totalPages - 1) startPage = Math.max(1, totalPages - 2);
 
   if (startPage > 1) {
     html += `<button type="button" class="page-btn" data-page="1">1</button>`;
-    if (startPage > 2) html += `<span style="color:#94a3b8;padding:0 4px;">…</span>`;
+    if (startPage > 2) html += `<span style="color:#94a3b8;padding:0 2px;font-size:11px;">…</span>`;
   }
 
   for (let p = startPage; p <= endPage; p++) {
-    html += `<button type="button" class="page-btn ${p === currentPage ? 'active' : ''}" data-page="${p}">${p}</button>`;
+    html += `<button type="button" class="page-btn ${p === current ? 'active' : ''}" data-page="${p}">${p}</button>`;
   }
 
   if (endPage < totalPages) {
-    if (endPage < totalPages - 1) html += `<span style="color:#94a3b8;padding:0 4px;">…</span>`;
+    if (endPage < totalPages - 1) html += `<span style="color:#94a3b8;padding:0 2px;font-size:11px;">…</span>`;
     html += `<button type="button" class="page-btn" data-page="${totalPages}">${totalPages}</button>`;
   }
 
   // 「次へ ＞」ボタン
-  html += `<button type="button" class="page-btn page-nav-btn" ${currentPage === totalPages ? 'disabled' : ''} data-page="${currentPage + 1}">次へ ＞</button>`;
+  html += `<button type="button" class="page-btn page-nav-btn" ${current === totalPages ? 'disabled' : ''} data-page="${current + 1}">次へ ＞</button>`;
   html += `</div>`;
 
   // ページ情報表示
-  html += `<div class="page-info">${currentPage} / ${totalPages} ページ（全 ${totalItems} 件）</div>`;
+  html += `<div class="page-info">${current} / ${totalPages} ページ (全 ${totalItems} 件)</div>`;
 
   container.innerHTML = html;
 
   container.querySelectorAll('.page-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const p = parseInt(e.currentTarget.dataset.page, 10);
-      if (p && p !== currentPage && p >= 1 && p <= totalPages) {
-        currentPage = p;
-        renderRecipes();
-        // 画面トップへスクロール
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        const mv = document.getElementById('main-view');
-        if (mv) mv.scrollTo({ top: 0, behavior: 'smooth' });
+      if (p && p !== current && p >= 1 && p <= totalPages) {
+        onPageChange(p);
       }
     });
   });
@@ -1407,7 +1434,7 @@ function renderFilterSummary() {
     if (singleFilter.sortBy === 'difficulty') badges.push({ label: 'めんどくさ度順▲', remove: () => { singleFilter.sortBy = 'missing'; } });
   } else {
     kondateFilter.genres.forEach(g => badges.push({ label: g, remove: () => { kondateFilter.genres = kondateFilter.genres.filter(x => x !== g); } }));
-    if (kondateFilter.comboType === 'staple+side-or-soup') badges.push({ label: 'ごはん/めん＋サブ', remove: () => { kondateFilter.comboType = 'main+side'; } });
+    if (kondateFilter.comboType === 'staple+side-or-soup') badges.push({ label: '丼もの/めん＋サブ', remove: () => { kondateFilter.comboType = 'main+side'; } });
     else if (kondateFilter.comboType === 'takikomi+main') badges.push({ label: '炊き込み＋メイン', remove: () => { kondateFilter.comboType = 'main+side'; } });
     else if (kondateFilter.comboType === 'custom') badges.push({ label: `カスタム:${(kondateFilter.customTypes||[]).join('+')}`, remove: () => { kondateFilter.comboType = 'main+side'; } });
 
@@ -1539,6 +1566,7 @@ document.getElementById('apply-single-filter-btn').addEventListener('click', () 
 document.getElementById('close-kondate-filter-btn').addEventListener('click', () => kondateFilterModal.classList.remove('active'));
 document.getElementById('reset-kondate-filter-btn').addEventListener('click', () => {
   kondateFilter.genres = []; kondateFilter.comboType = 'main+side'; kondateFilter.customTypes = ['メインおかず', 'スープ/汁物']; kondateFilter.mainTastes = []; kondateFilter.tastePairing = 'opposite'; kondateFilter.sortBy = 'missing';
+  currentKondatePage = 1;
   syncKondateFilterModal();
 });
 document.getElementById('apply-kondate-filter-btn').addEventListener('click', () => {
@@ -1551,6 +1579,7 @@ document.getElementById('apply-kondate-filter-btn').addEventListener('click', ()
   kondateFilter.mainTastes = getSelectedChipValues('kf-main-taste-chips');
   kondateFilter.tastePairing = document.querySelector('input[name="kf-taste-pair"]:checked').value;
   kondateFilter.sortBy = document.querySelector('input[name="kf-sort"]:checked').value;
+  currentKondatePage = 1;
   kondateFilterModal.classList.remove('active'); renderFilterSummary(); generateKondateSuggestions();
 });
 
@@ -1720,8 +1749,15 @@ document.querySelectorAll('.search-mode-tabs .tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.search-mode-tabs .tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active'); currentTab = tab.dataset.tab;
-    if (currentTab === 'single') { recipeListContainer.style.display = 'flex'; kondateResults.classList.remove('active'); }
-    else { recipeListContainer.style.display = 'none'; kondateResults.classList.add('active'); generateKondateSuggestions(); }
+    if (currentTab === 'single') {
+      recipeListContainer.style.display = 'flex';
+      kondateResults.classList.remove('active');
+      renderRecipes();
+    } else {
+      recipeListContainer.style.display = 'none';
+      kondateResults.classList.add('active');
+      generateKondateSuggestions();
+    }
     renderFilterSummary();
   });
 });
@@ -1731,12 +1767,17 @@ document.querySelectorAll('.search-mode-tabs .tab').forEach(tab => {
 // ============================================================
 function generateKondateSuggestions() {
   kondateResults.innerHTML = '';
+  const paginationContainer = document.getElementById('recipe-pagination');
   const gf = kondateFilter.genres.length > 0 ? r => kondateFilter.genres.includes((r.features||{}).genre) : () => true;
   const all = recipes.filter(gf);
   const mains = all.filter(r => (r.features||{}).mealType === 'メインおかず');
   const sides = all.filter(r => (r.features||{}).mealType === 'サブおかず');
   const soups = all.filter(r => (r.features||{}).mealType === 'スープ/汁物');
-  const staples = all.filter(r => { const m = (r.features||{}).mealType; return m === 'ごはん系' || m === 'めん系'; });
+  const staples = all.filter(r => { const m = (r.features||{}).mealType; return m === '丼もの' || m === 'めん系' || m === 'ごはん系'; });
+  const takikomiDishes = all.filter(r => {
+    const f = r.features || {};
+    return f.mealType === '炊き込みご飯' || f.genre === '炊き込みご飯' || r.name.includes('炊き込み') || r.name.includes('炊きこみ') || r.name.includes('釜飯');
+  });
 
   // 味の対照関係マッピング（5種類）
   const oppMap = {
@@ -1790,12 +1831,14 @@ function generateKondateSuggestions() {
     if (fst.length) {
       if (!comps.length) {
         fst.forEach(s => {
-          const rl = (s.features||{}).mealType === 'めん系' ? 'めん系' : 'ごはん系';
+          const m = (s.features||{}).mealType;
+          const rl = m === 'めん系' ? 'めん系' : (m === '炊き込みご飯' ? '炊き込みご飯' : '丼もの');
           sets.push(buildSetData([{ recipe: s, role: rl }, { recipe: null, role: 'スープ/汁物', placeholder: '適当なコンソメスープ' }]));
         });
       } else {
         for (const st of fst) {
-          const rl = (st.features||{}).mealType === 'めん系' ? 'めん系' : 'ごはん系';
+          const m = (st.features||{}).mealType;
+          const rl = m === 'めん系' ? 'めん系' : (m === '炊き込みご飯' ? '炊き込みご飯' : '丼もの');
           for (const c of comps) {
             const cr = (c.features||{}).mealType === 'スープ/汁物' ? 'スープ/汁物' : 'サブおかず';
             sets.push(buildSetData([{ recipe: st, role: rl }, { recipe: c, role: cr }]));
@@ -1804,19 +1847,14 @@ function generateKondateSuggestions() {
       }
     }
   } else if (kondateFilter.comboType === 'takikomi+main') {
-    // 炊き込みご飯判定
-    const takikomiDishes = all.filter(r => {
-      const f = r.features || {};
-      return f.genre === '炊き込みご飯' || (f.mealType === 'ごはん系' && (r.name.includes('炊き込み') || (f.freeTags||[]).includes('炊き込みご飯')));
-    });
-    const pool = takikomiDishes.length > 0 ? takikomiDishes : staples.filter(s => (s.features||{}).mealType === 'ごはん系');
+    const pool = takikomiDishes.length > 0 ? takikomiDishes : staples.filter(s => (s.features||{}).mealType === '丼もの' || (s.features||{}).mealType === 'ごはん系');
     const ftk = tasteFilter(pool, 'takikomi');
     const fm = tasteFilter(mains, 'main');
     const sl = soups.length ? soups : [null];
 
     if (ftk.length && fm.length) {
       for (const tk of ftk) for (const m of fm) for (const sp of sl) {
-        const items = [{ recipe: tk, role: 'ごはん系' }, { recipe: m, role: 'メインおかず' }];
+        const items = [{ recipe: tk, role: '炊き込みご飯' }, { recipe: m, role: 'メインおかず' }];
         if (sp) items.push({ recipe: sp, role: 'スープ/汁物' });
         else items.push({ recipe: null, role: 'スープ/汁物', placeholder: '適当なお吸い物・味噌汁' });
         sets.push(buildSetData(items));
@@ -1830,7 +1868,10 @@ function generateKondateSuggestions() {
 
     const typePools = chosenTypes.map(t => {
       let pool = all.filter(r => (r.features||{}).mealType === t);
-      if (t === 'メインおかず' || t === 'ごはん系') pool = tasteFilter(pool, 'main');
+      if (t === '炊き込みご飯' && pool.length === 0) {
+        pool = takikomiDishes;
+      }
+      if (t === 'メインおかず' || t === '丼もの' || t === '炊き込みご飯') pool = tasteFilter(pool, 'main');
       else if (t === 'サブおかず') pool = tasteFilter(pool, 'side');
       return { type: t, pool };
     });
@@ -1854,7 +1895,7 @@ function generateKondateSuggestions() {
   function setHasRecentMain(set) {
     return set.items.some(item => {
       if (!item.recipe) return false;
-      if (['メインおかず', 'ごはん系', 'めん系'].includes(item.role)) {
+      if (['メインおかず', '丼もの', '炊き込みご飯', 'ごはん系', 'めん系'].includes(item.role)) {
         return !!getRecentCookingInfo(item.recipe);
       }
       return false;
@@ -1865,7 +1906,11 @@ function generateKondateSuggestions() {
     sets = sets.filter(s => !setHasRecentMain(s));
   }
 
-  if (!sets.length) { kondateResults.innerHTML = '<p class="kondate-empty-msg">条件に合う献立が見つかりません。</p>'; return; }
+  if (!sets.length) {
+    kondateResults.innerHTML = '<p class="kondate-empty-msg">条件に合う献立が見つかりません。</p>';
+    if (paginationContainer) paginationContainer.innerHTML = '';
+    return;
+  }
 
   sets.sort((a, b) => {
     if (recentSettings.mode === 'lower_priority') {
@@ -1876,14 +1921,36 @@ function generateKondateSuggestions() {
     return kondateFilter.sortBy === 'difficulty' ? a.totalDifficulty - b.totalDifficulty : a.missingCount - b.missingCount;
   });
 
+  const totalKondateSets = sets.length;
+  const totalKondatePages = Math.ceil(totalKondateSets / kondatePageSize) || 1;
+  if (currentKondatePage > totalKondatePages) currentKondatePage = totalKondatePages;
+  if (currentKondatePage < 1) currentKondatePage = 1;
+
+  const startK = (currentKondatePage - 1) * kondatePageSize;
+  const pagedSets = sets.slice(startK, startK + kondatePageSize);
+
   let label = '🍱 献立提案';
   if (kondateFilter.comboType === 'main+side') label = '🍱 メインおかず＋サブおかず';
-  else if (kondateFilter.comboType === 'staple+side-or-soup') label = '🍝 ごはん系/めん系＋サブ or スープ';
+  else if (kondateFilter.comboType === 'staple+side-or-soup') label = '🍝 丼もの/めん系＋サブ or スープ';
   else if (kondateFilter.comboType === 'takikomi+main') label = '🍚 炊き込みご飯＋メインおかず';
   else if (kondateFilter.comboType === 'custom') label = `✨ カスタム献立（${(kondateFilter.customTypes || ['メインおかず', 'スープ/汁物']).join('＋')}）`;
+
   const sec = document.createElement('div'); sec.className = 'kondate-type-section'; sec.innerHTML = `<h3>${label}</h3>`;
-  sets.slice(0, 8).forEach((s, i) => sec.appendChild(createKondateCard(s, i + 1)));
+  pagedSets.forEach((s, i) => sec.appendChild(createKondateCard(s, startK + i + 1)));
   kondateResults.appendChild(sec);
+
+  // 献立検索のページネーションコントロール描画（画面下側に統一）
+  if (paginationContainer) {
+    if (totalKondatePages > 1) {
+      renderPaginationUI(paginationContainer, currentKondatePage, totalKondatePages, totalKondateSets, (p) => {
+        currentKondatePage = p;
+        generateKondateSuggestions();
+        kondateResults.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+    } else {
+      paginationContainer.innerHTML = '';
+    }
+  }
 }
 function buildSetData(items) {
   const req = new Set(); let td = 0;
@@ -1953,7 +2020,7 @@ function handleCookedKondateSet(set) {
   generateKondateSuggestions();
   alert(`「${names}」をカレンダーに記録しました！`);
 }
-function getRoleClass(r) { return { 'メインおかず': 'main-dish', 'サブおかず': 'side-dish', 'スープ/汁物': 'soup', 'ごはん系': 'staple', 'めん系': 'staple' }[r] || ''; }
+function getRoleClass(r) { return { 'メインおかず': 'main-dish', 'サブおかず': 'side-dish', 'スープ/汁物': 'soup', 'ごはん系': 'staple', '丼もの': 'staple', '炊き込みご飯': 'staple', 'めん系': 'staple' }[r] || ''; }
 
 // ============================================================
 // 冷蔵庫画面（構造化リスト）
